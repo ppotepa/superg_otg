@@ -84,16 +84,56 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"/>
             
-        <Button
-            android:id="@+id/btnRefreshDevices"
-            android:text="Refresh Devices"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#444444"
-            android:textSize="12sp"
+        <!-- Debug Control Buttons -->
+        <LinearLayout
+            android:orientation="horizontal"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:padding="8dp"/>
+            android:layout_marginTop="8dp">
+            
+            <Button
+                android:id="@+id/btnRefreshDevices"
+                android:text="Refresh"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#444444"
+                android:textSize="10sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"
+                android:layout_marginEnd="4dp"/>
+                
+            <Button
+                android:id="@+id/btnCycleDevices"
+                android:text="Next Device"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#444444"
+                android:textSize="10sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"
+                android:layout_marginEnd="4dp"/>
+                
+            <Button
+                android:id="@+id/btnDumpAllDevices"
+                android:text="Dump All"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#444444"
+                android:textSize="10sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"
+                android:layout_marginEnd="4dp"/>
+                
+            <Button
+                android:id="@+id/btnToggleRawMode"
+                android:text="Force Enable dm8150"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#666600"
+                android:textSize="10sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"/>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
@@ -195,4 +235,70 @@
             android:layout_height="wrap_content"/>
 
     </LinearLayout>
+
+    <!-- Enhanced Debug Panel -->
+    <ScrollView
+        android:layout_width="300dp"
+        android:layout_height="200dp"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="8dp"
+        android:background="#33000000">
+        
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp">
+
+            <TextView
+                android:text="DEVICE DETAILS"
+                android:textColor="#00FFFF"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/tvDeviceDetails"
+                android:text="Press 'Next Device' to cycle through input devices"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+
+        </LinearLayout>
+    </ScrollView>
+    
+    <!-- Real-time Axis Monitor -->
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="250dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="8dp"
+        android:padding="8dp"
+        android:background="#33000000">
+
+        <TextView
+            android:text="AXIS MONITOR"
+            android:textColor="#FF8800"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:id="@+id/tvRawAxes"
+            android:text="Scanning for devices with motion ranges..."
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+    </LinearLayout>
+
 </FrameLayout>

@@ -29,6 +29,12 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private Button btnRefreshDevices;
     private TextView tvGamepadDevice, tvGamepadButtons, tvGamepadAxes, tvGamepadTriggers;
     private TextView tvControllerName;
+    
+    // Enhanced debug UI
+    private Button btnCycleDevices, btnDumpAllDevices, btnToggleRawMode;
+    private TextView tvDeviceDetails, tvRawAxes;
+    private java.util.concurrent.atomic.AtomicInteger currentDeviceIndex = new java.util.concurrent.atomic.AtomicInteger(0);
+    private volatile boolean forceEnableDm8150 = false;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
@@ -115,12 +121,16 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         tvGamepadAxes = findViewById(R.id.tvGamepadAxes);
         tvGamepadTriggers = findViewById(R.id.tvGamepadTriggers);
         tvControllerName = findViewById(R.id.tvControllerName);
+        
+        // Enhanced debug UI
+        btnCycleDevices = findViewById(R.id.btnCycleDevices);
+        btnDumpAllDevices = findViewById(R.id.btnDumpAllDevices);
+        btnToggleRawMode = findViewById(R.id.btnToggleRawMode);
+        tvDeviceDetails = findViewById(R.id.tvDeviceDetails);
+        tvRawAxes = findViewById(R.id.tvRawAxes);
 
-        clearControllerDebug();        // Setup refresh button
-        btnRefreshDevices.setOnClickListener(v -> {
-            android.util.Log.d("ELRS", "=== MANUAL DEVICE REFRESH ===");
-            refreshAllDevices();
-        });
+        clearControllerDebug();
+        setupDebugButtons();
 
         mgr = (UsbManager)getSystemService(USB_SERVICE);
         input = (InputManager)getSystemService(INPUT_SERVICE);
@@ -223,8 +233,46 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         boolean superG = ensureSuperGConnected();
         updateSuperGStatus(superG);
 
-        boolean controller = detectController(true);
+        // Check direct USB devices first
+        boolean controllerViaUsb = checkDirectUsbDevices();
+        boolean controller = detectController(true) || controllerViaUsb;
         updateControllerStatus(controller);
+    }
+    
+    private boolean checkDirectUsbDevices() {
+        if (mgr == null) return false;
+        
+        android.util.Log.d("ELRS", "=== Checking Direct USB Devices ===");
+        for (UsbDevice device : mgr.getDeviceList().values()) {
+            android.util.Log.d("ELRS", String.format("USB Device: %04X:%04X - %s", 
+                device.getVendorId(), device.getProductId(), device.getProductName()));
+            
+            // Check for 8BitDo controller by VID/PID (2DC8:301F)
+            if (device.getVendorId() == 0x2DC8 && device.getProductId() == 0x301F) {
+                android.util.Log.d("ELRS", "Found 8BitDo controller via direct USB enumeration!");
+                android.util.Log.d("ELRS", dumpDevice(device));
+                
+                // Update UI to show controller is found
+                String detectedName = "8BitDo (USB direct: " + device.getProductName() + ")";
+                updateControllerNameUI(detectedName);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    private void updateControllerNameUI(String name) {
+        if (tvGamepadDevice != null) {
+            final String nameLabel = "Device: " + name;
+            tvGamepadDevice.post(() -> tvGamepadDevice.setText(nameLabel));
+        }
+        if (tvControllerName != null) {
+            final String finalName = name;
+            tvControllerName.post(() -> {
+                tvControllerName.setText(finalName);
+                tvControllerName.setVisibility(View.VISIBLE);
+            });
+        }
     }
 
     private boolean ensureSuperGConnected() {
@@ -325,28 +373,48 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             } else {
                 // Special case: Check for 8BitDo controller by name even if sources don't match
                 String deviceName = device.getName();
-                if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
-                                         deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
-                    // Check if it has any motion ranges (axes) that suggest it's a controller
-                    boolean hasAxes = false;
-                    for (InputDevice.MotionRange range : device.getMotionRanges()) {
-                        int axis = range.getAxis();
-                        if (axis == MotionEvent.AXIS_X || axis == MotionEvent.AXIS_Y ||
-                            axis == MotionEvent.AXIS_RX || axis == MotionEvent.AXIS_RY ||
-                            axis == MotionEvent.AXIS_Z || axis == MotionEvent.AXIS_RZ) {
-                            hasAxes = true;
+                if (deviceName != null) {
+                    boolean is8BitDoByName = deviceName.toLowerCase().contains("8bitdo") || 
+                                           deviceName.toLowerCase().contains("ultimate mobile gaming");
+                    boolean isDm8150Audio = deviceName.toLowerCase().contains("dm8150") && 
+                                          deviceName.toLowerCase().contains("snd-card");
+                    
+                    // Check for dm8150 audio device that might be our controller
+                    if (isDm8150Audio && (forceEnableDm8150 || !device.getMotionRanges().isEmpty())) {
+                        if (verboseLogging) {
+                            android.util.Log.d("ELRS", "  -> DM8150 AUDIO DEVICE WITH MOTION RANGES (likely 8BitDo)!");
+                            android.util.Log.d("ELRS", "     Force enabled: " + forceEnableDm8150);
+                            android.util.Log.d("ELRS", "     Motion ranges: " + device.getMotionRanges().size());
+                        }
+                        hasController = true;
+                        detectedName = "8BitDo (detected as " + deviceName + ")";
+                        if (!verboseLogging) {
                             break;
                         }
                     }
-                    
-                    if (hasAxes) {
-                        if (verboseLogging) {
-                            android.util.Log.d("ELRS", "  -> 8BITDO CONTROLLER DETECTED BY NAME & AXES!");
+                    // Original 8BitDo name detection
+                    else if (is8BitDoByName) {
+                        // Check if it has any motion ranges (axes) that suggest it's a controller
+                        boolean hasAxes = false;
+                        for (InputDevice.MotionRange range : device.getMotionRanges()) {
+                            int axis = range.getAxis();
+                            if (axis == MotionEvent.AXIS_X || axis == MotionEvent.AXIS_Y ||
+                                axis == MotionEvent.AXIS_RX || axis == MotionEvent.AXIS_RY ||
+                                axis == MotionEvent.AXIS_Z || axis == MotionEvent.AXIS_RZ) {
+                                hasAxes = true;
+                                break;
+                            }
                         }
-                        hasController = true;
-                        detectedName = deviceName;
-                        if (!verboseLogging) {
-                            break;
+                        
+                        if (hasAxes) {
+                            if (verboseLogging) {
+                                android.util.Log.d("ELRS", "  -> 8BITDO CONTROLLER DETECTED BY NAME & AXES!");
+                            }
+                            hasController = true;
+                            detectedName = deviceName;
+                            if (!verboseLogging) {
+                                break;
+                            }
                         }
                     }
                 }
@@ -372,6 +440,196 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         }
 
         return hasController;
+    }
+
+    private void setupDebugButtons() {
+        // Setup refresh button
+        if (btnRefreshDevices != null) {
+            btnRefreshDevices.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "=== MANUAL DEVICE REFRESH ===");
+                refreshAllDevices();
+            });
+        }
+        
+        // Setup device cycling button
+        if (btnCycleDevices != null) {
+            btnCycleDevices.setOnClickListener(v -> cycleToNextDevice());
+        }
+        
+        // Setup dump all devices button
+        if (btnDumpAllDevices != null) {
+            btnDumpAllDevices.setOnClickListener(v -> dumpAllInputDevices());
+        }
+        
+        // Setup toggle raw mode (force enable dm8150)
+        if (btnToggleRawMode != null) {
+            btnToggleRawMode.setOnClickListener(v -> {
+                forceEnableDm8150 = !forceEnableDm8150;
+                btnToggleRawMode.setText(forceEnableDm8150 ? "Disable dm8150" : "Force Enable dm8150");
+                android.util.Log.d("ELRS", "Force enable dm8150: " + forceEnableDm8150);
+                refreshAllDevices();
+            });
+        }
+        
+        // Start real-time axis monitoring
+        startAxisMonitoring();
+    }
+    
+    private void cycleToNextDevice() {
+        if (input == null) return;
+        
+        int[] deviceIds = input.getInputDeviceIds();
+        if (deviceIds.length == 0) {
+            if (tvDeviceDetails != null) {
+                tvDeviceDetails.post(() -> tvDeviceDetails.setText("No input devices found"));
+            }
+            return;
+        }
+        
+        int index = currentDeviceIndex.incrementAndGet() % deviceIds.length;
+        currentDeviceIndex.set(index);
+        InputDevice device = input.getInputDevice(deviceIds[index]);
+        if (device != null) {
+            dumpDeviceInfo(device);
+        }
+    }
+    
+    private void dumpAllInputDevices() {
+        if (input == null) return;
+        
+        int[] deviceIds = input.getInputDeviceIds();
+        android.util.Log.d("ELRS", "=== DUMPING ALL INPUT DEVICES ===");
+        android.util.Log.d("ELRS", "Found " + deviceIds.length + " input devices");
+        
+        StringBuilder summary = new StringBuilder();
+        summary.append("All Devices (").append(deviceIds.length).append("):\n");
+        
+        for (int i = 0; i < deviceIds.length; i++) {
+            InputDevice device = input.getInputDevice(deviceIds[i]);
+            if (device != null) {
+                android.util.Log.d("ELRS", "--- Device " + i + " ---");
+                dumpDeviceInfo(device);
+                
+                summary.append(i).append(": ").append(device.getName()).append("\n");
+            }
+        }
+        
+        if (tvDeviceDetails != null) {
+            tvDeviceDetails.post(() -> tvDeviceDetails.setText(summary.toString()));
+        }
+    }
+    
+    private void dumpDeviceInfo(InputDevice device) {
+        StringBuilder info = new StringBuilder();
+        info.append("=== DEVICE INFO ===\n");
+        info.append("ID: ").append(device.getId()).append("\n");
+        info.append("Name: ").append(device.getName()).append("\n");
+        info.append("Descriptor: ").append(device.getDescriptor()).append("\n");
+        
+        int sources = device.getSources();
+        info.append("Sources: 0x").append(Integer.toHexString(sources)).append("\n");
+        
+        // Check all potential sources
+        String[] sourceNames = {
+            "KEYBOARD", "DPAD", "GAMEPAD", "JOYSTICK", 
+            "MOUSE", "STYLUS", "TOUCHSCREEN", "TOUCHPAD"
+        };
+        int[] sourceFlags = {
+            InputDevice.SOURCE_KEYBOARD, InputDevice.SOURCE_DPAD,
+            InputDevice.SOURCE_GAMEPAD, InputDevice.SOURCE_JOYSTICK,
+            InputDevice.SOURCE_MOUSE, InputDevice.SOURCE_STYLUS, 
+            InputDevice.SOURCE_TOUCHSCREEN, InputDevice.SOURCE_TOUCHPAD
+        };
+        
+        for (int i = 0; i < sourceNames.length; i++) {
+            boolean hasSource = (sources & sourceFlags[i]) != 0;
+            info.append("  ").append(sourceNames[i]).append(": ").append(hasSource).append("\n");
+        }
+        
+        // List all available motion ranges
+        info.append("Motion Ranges:\n");
+        for (InputDevice.MotionRange range : device.getMotionRanges()) {
+            info.append("  Axis ").append(MotionEvent.axisToString(range.getAxis()))
+                .append(" (").append(range.getAxis()).append(")")
+                .append(" min=").append(String.format("%.2f", range.getMin()))
+                .append(" max=").append(String.format("%.2f", range.getMax()))
+                .append("\n");
+        }
+        
+        // Add special case detection info
+        info.append("\nSpecial Detection:\n");
+        String deviceName = device.getName();
+        boolean is8BitDoByName = deviceName != null && 
+            (deviceName.toLowerCase().contains("8bitdo") ||
+             deviceName.toLowerCase().contains("ultimate mobile"));
+        boolean isDm8150Audio = deviceName != null && 
+            deviceName.toLowerCase().contains("dm8150") &&
+            deviceName.toLowerCase().contains("snd-card");
+        
+        info.append("  Matches 8BitDo pattern: ").append(is8BitDoByName).append("\n");
+        info.append("  Matches DM8150 audio: ").append(isDm8150Audio).append("\n");
+        info.append("  Has motion ranges: ").append(!device.getMotionRanges().isEmpty()).append("\n");
+        
+        // Log to ADB
+        android.util.Log.d("ELRS", "DEVICE DUMP: " + info.toString());
+        
+        // Update UI
+        if (tvDeviceDetails != null) {
+            tvDeviceDetails.post(() -> tvDeviceDetails.setText(info.toString()));
+        }
+    }
+    
+    private void startAxisMonitoring() {
+        Handler handler = new Handler(Looper.getMainLooper());
+        
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (tvRawAxes != null && input != null) {
+                    // Get all connected devices with motion ranges
+                    int[] deviceIds = input.getInputDeviceIds();
+                    StringBuilder axisInfo = new StringBuilder();
+                    axisInfo.append("Real-time Axis Monitor:\n");
+                    
+                    for (int deviceId : deviceIds) {
+                        InputDevice device = input.getInputDevice(deviceId);
+                        if (device == null || device.getMotionRanges().isEmpty()) continue;
+                        
+                        String deviceName = device.getName();
+                        if (deviceName != null && deviceName.length() > 30) {
+                            deviceName = deviceName.substring(0, 27) + "...";
+                        }
+                        
+                        axisInfo.append("Device: ").append(deviceName).append("\n");
+                        
+                        // Show available axes (we can't read current values without active input)
+                        int axisCount = 0;
+                        for (InputDevice.MotionRange range : device.getMotionRanges()) {
+                            if (axisCount >= 4) { // Limit to first 4 axes for display
+                                axisInfo.append("  ... (").append(device.getMotionRanges().size() - axisCount).append(" more)\n");
+                                break;
+                            }
+                            axisInfo.append("  ").append(MotionEvent.axisToString(range.getAxis()))
+                                   .append(": <idle> (").append(String.format("%.1f", range.getMin()))
+                                   .append(" to ").append(String.format("%.1f", range.getMax())).append(")\n");
+                            axisCount++;
+                        }
+                        axisInfo.append("\n");
+                        
+                        // Only show first device with motion ranges to avoid clutter
+                        break;
+                    }
+                    
+                    if (axisInfo.length() <= 30) { // If no devices found
+                        axisInfo.append("No devices with motion ranges found\n");
+                    }
+                    
+                    tvRawAxes.post(() -> tvRawAxes.setText(axisInfo.toString()));
+                }
+                
+                handler.postDelayed(this, 1000); // Update every second
+            }
+        });
     }
 
     private void clearControllerDebug() {
@@ -480,23 +738,29 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         
         // Special case for 8BitDo controller that might not report correct sources
         boolean is8BitDo = false;
+        boolean isDm8150Audio = false;
         InputDevice device = e.getDevice();
         if (device != null) {
             String deviceName = device.getName();
-            if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
-                                     deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
-                is8BitDo = true;
+            if (deviceName != null) {
+                is8BitDo = deviceName.toLowerCase().contains("8bitdo") || 
+                          deviceName.toLowerCase().contains("ultimate mobile gaming");
+                isDm8150Audio = deviceName.toLowerCase().contains("dm8150") && 
+                               deviceName.toLowerCase().contains("snd-card");
             }
         }
         
-        if ((isGamepadSource || is8BitDo) && e.getAction() == MotionEvent.ACTION_MOVE) {
+        if ((isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) && e.getAction() == MotionEvent.ACTION_MOVE) {
 
             // Debug: Log motion event details
             if (!controllerConnected) {
                 android.util.Log.d("ELRS", "Motion event from device: " + 
                     (device != null ? device.getName() : "unknown"));
                 android.util.Log.d("ELRS", String.format("Source: 0x%08X", e.getSource()));
-                android.util.Log.d("ELRS", "Detected via: " + (isGamepadSource ? "Standard gamepad source" : "8BitDo name match"));
+                String detectionMethod = isGamepadSource ? "Standard gamepad source" : 
+                                       is8BitDo ? "8BitDo name match" : 
+                                       isDm8150Audio ? "dm8150 audio (forced)" : "Unknown";
+                android.util.Log.d("ELRS", "Detected via: " + detectionMethod);
             }
 
             // Controller is active - update status
@@ -547,6 +811,21 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                     getAxis(e, MotionEvent.AXIS_RZ));
                 tvGamepadTriggers.post(() -> tvGamepadTriggers.setText(triggerText));
             }
+            
+            // Update real-time axis monitor with live values
+            if (tvRawAxes != null && device != null) {
+                StringBuilder liveAxes = new StringBuilder();
+                liveAxes.append("LIVE: ").append(device.getName()).append("\n");
+                liveAxes.append("X:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_X)));
+                liveAxes.append(" Y:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_Y)));
+                liveAxes.append(" RX:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RX)));
+                liveAxes.append(" RY:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RY))).append("\n");
+                liveAxes.append("LT:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_LTRIGGER)));
+                liveAxes.append(" RT:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RTRIGGER)));
+                liveAxes.append(" RZ:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RZ)));
+                
+                tvRawAxes.post(() -> tvRawAxes.setText(liveAxes.toString()));
+            }
 
             lastRoll = rx; lastPitch = ry; lastYaw = rz; lastThr = thr;
             nativeSetAxes(rx, ry, rz, thr);
@@ -561,24 +840,30 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         boolean isGamepadSource = ((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
                                  ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0);
         
-        // Special case for 8BitDo controller
+        // Special case for 8BitDo controller and dm8150 audio
         boolean is8BitDo = false;
+        boolean isDm8150Audio = false;
         InputDevice device = event.getDevice();
         if (device != null) {
             String deviceName = device.getName();
-            if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
-                                     deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
-                is8BitDo = true;
+            if (deviceName != null) {
+                is8BitDo = deviceName.toLowerCase().contains("8bitdo") || 
+                          deviceName.toLowerCase().contains("ultimate mobile gaming");
+                isDm8150Audio = deviceName.toLowerCase().contains("dm8150") && 
+                               deviceName.toLowerCase().contains("snd-card");
             }
         }
         
-        if (isGamepadSource || is8BitDo) {
+        if (isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) {
             // Controller is active - update status
             if (!controllerConnected) {
                 android.util.Log.d("ELRS", "Key event from device: " + 
                     (device != null ? device.getName() : "unknown"));
                 android.util.Log.d("ELRS", "Controller detected via key event!");
-                android.util.Log.d("ELRS", "Detected via: " + (isGamepadSource ? "Standard gamepad source" : "8BitDo name match"));
+                String detectionMethod = isGamepadSource ? "Standard gamepad source" : 
+                                       is8BitDo ? "8BitDo name match" : 
+                                       isDm8150Audio ? "dm8150 audio (forced)" : "Unknown";
+                android.util.Log.d("ELRS", "Detected via: " + detectionMethod);
                 updateControllerStatus(true);
             }
             
@@ -614,18 +899,21 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         boolean isGamepadSource = ((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
                                  ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0);
         
-        // Special case for 8BitDo controller
+        // Special case for 8BitDo controller and dm8150 audio
         boolean is8BitDo = false;
+        boolean isDm8150Audio = false;
         InputDevice device = event.getDevice();
         if (device != null) {
             String deviceName = device.getName();
-            if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
-                                     deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
-                is8BitDo = true;
+            if (deviceName != null) {
+                is8BitDo = deviceName.toLowerCase().contains("8bitdo") || 
+                          deviceName.toLowerCase().contains("ultimate mobile gaming");
+                isDm8150Audio = deviceName.toLowerCase().contains("dm8150") && 
+                               deviceName.toLowerCase().contains("snd-card");
             }
         }
         
-        if (isGamepadSource || is8BitDo) {
+        if (isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) {
             
             // Update debug display with button release
             if (tvGamepadButtons != null) {
