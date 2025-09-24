@@ -36,6 +36,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     public static native void nativeStart();
     public static native void nativeStop();
 
+    private int controllerCheckCounter = 0;
+    
     private final Runnable uiTick = new Runnable() {
         @Override public void run() {
             if (tvRoll != null) {
@@ -44,6 +46,16 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 tvYaw.setText(String.format("YAW: %.2f", lastYaw));
                 tvThr.setText(String.format("THR: %.2f", lastThr));
             }
+            
+            // Periodically recheck controller status (every ~1 second)
+            controllerCheckCounter++;
+            if (controllerCheckCounter >= 60) { // 60 frames at 60Hz = 1 second
+                controllerCheckCounter = 0;
+                if (!controllerConnected) {
+                    checkControllerStatus();
+                }
+            }
+            
             // keep immersive each tick, just in case
             hideSystemUi();
             tvRoll.postDelayed(this, 16); // ~60 Hz
@@ -111,8 +123,14 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             maybeRequest(d);
         }
 
-        // Check initial controller status
+        // Check initial controller status with delay to allow devices to initialize
         checkControllerStatus();
+        
+        // Also schedule a delayed check in case devices aren't ready immediately
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            android.util.Log.d("ELRS", "=== Delayed controller check ===");
+            checkControllerStatus();
+        }, 2000); // 2 second delay
         
         nativeStart();
         tvRoll.post(uiTick);
@@ -173,11 +191,22 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     }
 
     @Override public boolean onGenericMotionEvent(MotionEvent e) {
-        if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) != 0 &&
-                e.getAction() == MotionEvent.ACTION_MOVE) {
+        // More inclusive check for gamepad input
+        if (((e.getSource() & InputDevice.SOURCE_JOYSTICK) != 0 ||
+             (e.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) &&
+             e.getAction() == MotionEvent.ACTION_MOVE) {
+
+            // Debug: Log motion event details
+            if (!controllerConnected) {
+                InputDevice device = e.getDevice();
+                android.util.Log.d("ELRS", "Motion event from device: " + 
+                    (device != null ? device.getName() : "unknown"));
+                android.util.Log.d("ELRS", String.format("Source: 0x%08X", e.getSource()));
+            }
 
             // Controller is active - update status
             if (!controllerConnected) {
+                android.util.Log.d("ELRS", "Controller detected via motion event!");
                 updateControllerStatus(true);
             }
 
@@ -199,6 +228,24 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             return true;
         }
         return super.onGenericMotionEvent(e);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Check if this is a gamepad key
+        if (((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
+            ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0)) {
+            
+            // Controller is active - update status
+            if (!controllerConnected) {
+                InputDevice device = event.getDevice();
+                android.util.Log.d("ELRS", "Key event from device: " + 
+                    (device != null ? device.getName() : "unknown"));
+                android.util.Log.d("ELRS", "Controller detected via key event!");
+                updateControllerStatus(true);
+            }
+        }
+        return super.onKeyDown(keyCode, event);
     }
 
     private static float getAxis(MotionEvent e, int axis) {
@@ -270,13 +317,35 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private void checkControllerStatus() {
         boolean hasController = false;
         int[] deviceIds = input.getInputDeviceIds();
+        
+        // Debug: Log all input devices
+        android.util.Log.d("ELRS", "=== Checking Input Devices ===");
+        android.util.Log.d("ELRS", "Found " + deviceIds.length + " input devices");
+        
         for (int deviceId : deviceIds) {
             InputDevice device = input.getInputDevice(deviceId);
-            if (device != null && (device.getSources() & InputDevice.SOURCE_JOYSTICK) != 0) {
-                hasController = true;
-                break;
+            if (device != null) {
+                int sources = device.getSources();
+                String name = device.getName();
+                
+                // Debug: Log device details
+                android.util.Log.d("ELRS", String.format("Device[%d]: %s", deviceId, name));
+                android.util.Log.d("ELRS", String.format("  Sources: 0x%08X", sources));
+                android.util.Log.d("ELRS", String.format("  JOYSTICK: %s", (sources & InputDevice.SOURCE_JOYSTICK) != 0));
+                android.util.Log.d("ELRS", String.format("  GAMEPAD: %s", (sources & InputDevice.SOURCE_GAMEPAD) != 0));
+                android.util.Log.d("ELRS", String.format("  DPAD: %s", (sources & InputDevice.SOURCE_DPAD) != 0));
+                
+                // Check for gamepad/joystick sources (more comprehensive check)
+                if ((sources & InputDevice.SOURCE_JOYSTICK) != 0 ||
+                    (sources & InputDevice.SOURCE_GAMEPAD) != 0) {
+                    android.util.Log.d("ELRS", "  -> CONTROLLER DETECTED!");
+                    hasController = true;
+                    break;
+                }
             }
         }
+        
+        android.util.Log.d("ELRS", "Controller status: " + hasController);
         updateControllerStatus(hasController);
     }
 }
