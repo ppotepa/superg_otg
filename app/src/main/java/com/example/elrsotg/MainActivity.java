@@ -32,6 +32,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     
     // Enhanced debug UI
     private Button btnCycleDevices, btnDumpAllDevices, btnToggleRawMode;
+    private Button btnTestRoot, btnRootDetect;
     private TextView tvDeviceDetails, tvRawAxes;
     private java.util.concurrent.atomic.AtomicInteger currentDeviceIndex = new java.util.concurrent.atomic.AtomicInteger(0);
     private volatile boolean forceEnableDm8150 = false;
@@ -128,6 +129,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         btnToggleRawMode = findViewById(R.id.btnToggleRawMode);
         tvDeviceDetails = findViewById(R.id.tvDeviceDetails);
         tvRawAxes = findViewById(R.id.tvRawAxes);
+        
+        // Root testing buttons
+        btnTestRoot = findViewById(R.id.btnTestRoot);
+        btnRootDetect = findViewById(R.id.btnRootDetect);
 
         clearControllerDebug();
         setupDebugButtons();
@@ -243,21 +248,187 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         if (mgr == null) return false;
         
         android.util.Log.d("ELRS", "=== Checking Direct USB Devices ===");
+        boolean found8BitDo = false;
+        boolean foundCP2102 = false;
+        
         for (UsbDevice device : mgr.getDeviceList().values()) {
             android.util.Log.d("ELRS", String.format("USB Device: %04X:%04X - %s", 
                 device.getVendorId(), device.getProductId(), device.getProductName()));
             
-            // Check for 8BitDo controller by VID/PID (2DC8:301F)
+            // Check for 8BitDo Ultimate Mobile Gaming Controller (2DC8:301F)
             if (device.getVendorId() == 0x2DC8 && device.getProductId() == 0x301F) {
-                android.util.Log.d("ELRS", "Found 8BitDo controller via direct USB enumeration!");
+                android.util.Log.d("ELRS", "Found 8BitDo Ultimate Mobile Gaming Controller via USB!");
                 android.util.Log.d("ELRS", dumpDevice(device));
                 
-                // Update UI to show controller is found
-                String detectedName = "8BitDo (USB direct: " + device.getProductName() + ")";
+                String detectedName = "8BitDo Ultimate Mobile Gaming Controller";
                 updateControllerNameUI(detectedName);
-                return true;
+                found8BitDo = true;
+            }
+            
+            // Check for CP2102 USB to UART Bridge (10C4:EA60)
+            if (device.getVendorId() == 0x10C4 && device.getProductId() == 0xEA60) {
+                android.util.Log.d("ELRS", "Found CP2102 USB to UART Bridge Controller!");
+                foundCP2102 = true;
             }
         }
+        
+        // Try root-based detection as fallback
+        if (!found8BitDo) {
+            found8BitDo = checkUsbDevicesViaRoot();
+        }
+        
+        // Also check for input devices via root
+        if (!found8BitDo) {
+            found8BitDo = checkInputDevicesViaRoot();
+        }
+        
+        return found8BitDo;
+    }
+    
+    private boolean checkInputDevicesViaRoot() {
+        try {
+            android.util.Log.d("ELRS", "=== Checking input devices via root ===");
+            
+            // Check /proc/bus/input/devices for our controller
+            java.lang.Process process = Runtime.getRuntime().exec("su -c 'cat /proc/bus/input/devices'");
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream()));
+            
+            String line;
+            boolean inOurDevice = false;
+            String deviceName = "";
+            String deviceVendor = "";
+            String deviceProduct = "";
+            
+            while ((line = reader.readLine()) != null) {
+                android.util.Log.d("ELRS", "input devices: " + line);
+                
+                if (line.startsWith("I: ")) {
+                    // Reset for new device
+                    inOurDevice = false;
+                    deviceName = "";
+                    deviceVendor = "";
+                    deviceProduct = "";
+                }
+                
+                if (line.startsWith("N: Name=")) {
+                    deviceName = line.substring(8).replace("\"", "");
+                    // Check if this is our 8BitDo controller
+                    if (deviceName.toLowerCase().contains("8bitdo") ||
+                        deviceName.toLowerCase().contains("ultimate mobile gaming")) {
+                        inOurDevice = true;
+                        android.util.Log.d("ELRS", "Found 8BitDo input device: " + deviceName);
+                    }
+                }
+                
+                if (inOurDevice && line.startsWith("I: ")) {
+                    // Parse the I: line for vendor/product IDs
+                    if (line.contains("Vendor=2dc8") && line.contains("Product=301f")) {
+                        android.util.Log.d("ELRS", "Confirmed 8BitDo controller via input devices!");
+                        updateControllerNameUI(deviceName + " (via /proc/bus/input)");
+                        reader.close();
+                        return true;
+                    }
+                }
+            }
+            
+            reader.close();
+            process.waitFor();
+            
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error checking input devices via root", e);
+        }
+        
+        return false;
+    }
+    
+    private boolean checkUsbDevicesViaRoot() {
+        try {
+            // Use lsusb command to check for specific devices
+            java.lang.Process process = Runtime.getRuntime().exec("su -c 'lsusb'");
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream()));
+            
+            String line;
+            boolean found8BitDo = false;
+            android.util.Log.d("ELRS", "=== Root lsusb output ===");
+            
+            while ((line = reader.readLine()) != null) {
+                android.util.Log.d("ELRS", "lsusb: " + line);
+                
+                // Look for 8BitDo controller: 2dc8:301f
+                if (line.toLowerCase().contains("2dc8:301f") || 
+                    line.toLowerCase().contains("8bitdo") ||
+                    line.toLowerCase().contains("ultimate mobile gaming")) {
+                    android.util.Log.d("ELRS", "Found 8BitDo via root lsusb!");
+                    updateControllerNameUI("8BitDo (found via root lsusb)");
+                    found8BitDo = true;
+                }
+            }
+            
+            process.waitFor();
+            reader.close();
+            
+            // Also try checking /sys/bus/usb/devices
+            if (!found8BitDo) {
+                found8BitDo = checkSysUsbDevices();
+            }
+            
+            return found8BitDo;
+            
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error running root lsusb command", e);
+            return false;
+        }
+    }
+    
+    private boolean checkSysUsbDevices() {
+        try {
+            // Check /sys/bus/usb/devices for our specific devices
+            java.lang.Process process = Runtime.getRuntime().exec("su -c 'find /sys/bus/usb/devices -name \"idVendor\" -exec grep -l \"2dc8\" {} \\;'");
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream()));
+            
+            String line;
+            while ((line = reader.readLine()) != null) {
+                android.util.Log.d("ELRS", "Found 2dc8 vendor in: " + line);
+                
+                // Check if this device also has product ID 301f
+                String devicePath = line.replace("/idVendor", "");
+                java.lang.Process pidProcess = Runtime.getRuntime().exec("su -c 'cat " + devicePath + "/idProduct'");
+                java.io.BufferedReader pidReader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(pidProcess.getInputStream()));
+                
+                String productId = pidReader.readLine();
+                if ("301f".equals(productId)) {
+                    android.util.Log.d("ELRS", "Confirmed 8BitDo controller at: " + devicePath);
+                    
+                    // Try to get product name
+                    try {
+                        java.lang.Process nameProcess = Runtime.getRuntime().exec("su -c 'cat " + devicePath + "/product'");
+                        java.io.BufferedReader nameReader = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(nameProcess.getInputStream()));
+                        String productName = nameReader.readLine();
+                        
+                        updateControllerNameUI("8BitDo (" + productName + " via /sys)");
+                        nameReader.close();
+                    } catch (Exception e) {
+                        updateControllerNameUI("8BitDo (via /sys/bus/usb)");
+                    }
+                    
+                    pidReader.close();
+                    return true;
+                }
+                pidReader.close();
+            }
+            
+            reader.close();
+            process.waitFor();
+            
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error checking /sys/bus/usb/devices", e);
+        }
+        
         return false;
     }
     
@@ -441,6 +612,139 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
         return hasController;
     }
+    
+    private void dumpSystemDeviceInfo() {
+        android.util.Log.d("ELRS", "=== COMPREHENSIVE SYSTEM DEVICE DUMP ===");
+        
+        // Expected devices based on your lsusb output:
+        // 01 002 1a86:8091 - USB HUB
+        // 01 005 10c4:ea60 - CP2102 USB to UART Bridge Controller (ExpressLRS)
+        // 01 003 2dc8:301f - 8BitDo Ultimate Mobile Gaming Controller
+        // 01 001 1d6b:0002 - xHCI Host Controller
+        
+        checkExpectedDevices();
+        dumpUsbHierarchy();
+        dumpInputDeviceMapping();
+    }
+    
+    private void checkExpectedDevices() {
+        android.util.Log.d("ELRS", "--- Checking Expected Devices ---");
+        
+        // Check for CP2102 (ExpressLRS module)
+        boolean foundCP2102 = false;
+        // Check for 8BitDo controller
+        boolean found8BitDo = false;
+        
+        if (mgr != null) {
+            for (UsbDevice device : mgr.getDeviceList().values()) {
+                int vid = device.getVendorId();
+                int pid = device.getProductId();
+                
+                if (vid == 0x10C4 && pid == 0xEA60) {
+                    foundCP2102 = true;
+                    android.util.Log.d("ELRS", "✓ Found CP2102 USB to UART Bridge Controller (ExpressLRS)");
+                }
+                
+                if (vid == 0x2DC8 && pid == 0x301F) {
+                    found8BitDo = true;
+                    android.util.Log.d("ELRS", "✓ Found 8BitDo Ultimate Mobile Gaming Controller");
+                }
+            }
+        }
+        
+        if (!foundCP2102) {
+            android.util.Log.w("ELRS", "✗ CP2102 USB to UART Bridge Controller NOT FOUND");
+        }
+        
+        if (!found8BitDo) {
+            android.util.Log.w("ELRS", "✗ 8BitDo Ultimate Mobile Gaming Controller NOT FOUND via USB");
+            android.util.Log.d("ELRS", "   Checking if it's detected as audio device...");
+            checkFor8BitDoAsAudioDevice();
+        }
+    }
+    
+    private void checkFor8BitDoAsAudioDevice() {
+        if (input == null) return;
+        
+        int[] deviceIds = input.getInputDeviceIds();
+        for (int deviceId : deviceIds) {
+            InputDevice device = input.getInputDevice(deviceId);
+            if (device == null) continue;
+            
+            String deviceName = device.getName();
+            if (deviceName != null) {
+                if (deviceName.toLowerCase().contains("dm8150") && 
+                    deviceName.toLowerCase().contains("snd-card")) {
+                    
+                    android.util.Log.w("ELRS", "⚠ Found dm8150 snd-card device (likely misdetected 8BitDo): " + deviceName);
+                    android.util.Log.d("ELRS", "   Motion ranges: " + device.getMotionRanges().size());
+                    
+                    if (!device.getMotionRanges().isEmpty()) {
+                        android.util.Log.w("ELRS", "   → This audio device has motion ranges - definitely our controller!");
+                    }
+                }
+            }
+        }
+    }
+    
+    private void dumpUsbHierarchy() {
+        try {
+            android.util.Log.d("ELRS", "--- USB Device Hierarchy (via root) ---");
+            java.lang.Process process = Runtime.getRuntime().exec("su -c 'lsusb -t 2>/dev/null || echo \"lsusb -t not available\"'");
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream()));
+            
+            String line;
+            while ((line = reader.readLine()) != null) {
+                android.util.Log.d("ELRS", "USB tree: " + line);
+            }
+            
+            reader.close();
+            process.waitFor();
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Could not get USB hierarchy", e);
+        }
+    }
+    
+    private void dumpInputDeviceMapping() {
+        try {
+            android.util.Log.d("ELRS", "--- Input Device to USB Mapping ---");
+            
+            // Try to correlate input devices with USB devices
+            if (input != null) {
+                int[] deviceIds = input.getInputDeviceIds();
+                for (int deviceId : deviceIds) {
+                    InputDevice device = input.getInputDevice(deviceId);
+                    if (device == null) continue;
+                    
+                    String deviceName = device.getName();
+                    String descriptor = device.getDescriptor();
+                    
+                    android.util.Log.d("ELRS", "Input Device: " + deviceName);
+                    android.util.Log.d("ELRS", "  Descriptor: " + descriptor);
+                    
+                    // Try to extract USB info from descriptor
+                    if (descriptor != null && descriptor.contains("usb")) {
+                        android.util.Log.d("ELRS", "  → USB-based input device");
+                        
+                        // Check if this matches our expected devices
+                        if (deviceName != null) {
+                            if (deviceName.toLowerCase().contains("8bitdo") ||
+                                deviceName.toLowerCase().contains("ultimate mobile gaming")) {
+                                android.util.Log.d("ELRS", "  → This is our 8BitDo controller!");
+                            } else if (deviceName.toLowerCase().contains("dm8150") &&
+                                      deviceName.toLowerCase().contains("snd-card")) {
+                                android.util.Log.w("ELRS", "  → This might be our 8BitDo misdetected as audio!");
+                            }
+                        }
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error mapping input devices", e);
+        }
+    }
 
     private void setupDebugButtons() {
         // Setup refresh button
@@ -458,7 +762,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         
         // Setup dump all devices button
         if (btnDumpAllDevices != null) {
-            btnDumpAllDevices.setOnClickListener(v -> dumpAllInputDevices());
+            btnDumpAllDevices.setOnClickListener(v -> {
+                dumpAllInputDevices();
+                dumpSystemDeviceInfo();
+            });
         }
         
         // Setup toggle raw mode (force enable dm8150)
@@ -471,8 +778,67 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             });
         }
         
+        // Setup root testing buttons
+        if (btnTestRoot != null) {
+            btnTestRoot.setOnClickListener(v -> testRootAccess());
+        }
+        
+        if (btnRootDetect != null) {
+            btnRootDetect.setOnClickListener(v -> runRootBasedDetection());
+        }
+        
         // Start real-time axis monitoring
         startAxisMonitoring();
+    }
+    
+    private void testRootAccess() {
+        android.util.Log.d("ELRS", "=== Testing Root Access ===");
+        try {
+            java.lang.Process process = Runtime.getRuntime().exec("su -c 'id'");
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(process.getInputStream()));
+            
+            String line = reader.readLine();
+            if (line != null && line.contains("uid=0")) {
+                android.util.Log.d("ELRS", "✓ Root access confirmed: " + line);
+                if (tvDeviceDetails != null) {
+                    tvDeviceDetails.post(() -> tvDeviceDetails.setText("Root Access: CONFIRMED\n" + line));
+                }
+            } else {
+                android.util.Log.w("ELRS", "✗ Root access failed: " + line);
+                if (tvDeviceDetails != null) {
+                    tvDeviceDetails.post(() -> tvDeviceDetails.setText("Root Access: FAILED\n" + line));
+                }
+            }
+            
+            reader.close();
+            process.waitFor();
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Root test failed", e);
+            if (tvDeviceDetails != null) {
+                tvDeviceDetails.post(() -> tvDeviceDetails.setText("Root Access: ERROR\n" + e.getMessage()));
+            }
+        }
+    }
+    
+    private void runRootBasedDetection() {
+        android.util.Log.d("ELRS", "=== Running Root-Based Detection ===");
+        
+        // Run comprehensive root-based device detection
+        boolean foundViaRoot = checkUsbDevicesViaRoot();
+        
+        if (foundViaRoot) {
+            android.util.Log.d("ELRS", "✓ 8BitDo controller found via root methods!");
+            updateControllerStatus(true);
+        } else {
+            android.util.Log.w("ELRS", "✗ 8BitDo controller not found via root methods");
+        }
+        
+        // Update UI with results
+        if (tvDeviceDetails != null) {
+            String result = foundViaRoot ? "Root Detection: 8BitDo FOUND" : "Root Detection: 8BitDo NOT FOUND";
+            tvDeviceDetails.post(() -> tvDeviceDetails.setText(result + "\nCheck ADB logs for details"));
+        }
     }
     
     private void cycleToNextDevice() {

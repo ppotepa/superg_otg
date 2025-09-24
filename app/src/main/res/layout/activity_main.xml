@@ -134,6 +134,35 @@
                 android:layout_height="wrap_content"
                 android:padding="6dp"/>
         </LinearLayout>
+        
+        <!-- Second row of debug buttons -->
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp">
+            
+            <Button
+                android:id="@+id/btnTestRoot"
+                android:text="Test Root"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#880088"
+                android:textSize="10sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"
+                android:layout_marginEnd="4dp"/>
+                
+            <Button
+                android:id="@+id/btnRootDetect"
+                android:text="Root Detect"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#008800"
+                android:textSize="10sp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"/>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
