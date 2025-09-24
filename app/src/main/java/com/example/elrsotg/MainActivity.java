@@ -8,6 +8,7 @@ import android.hardware.input.InputManager;
 import android.hardware.usb.*;
 import android.os.*;
 import android.view.*;
+import android.widget.Button;
 import android.widget.TextView;
 
 public class MainActivity extends Activity implements InputManager.InputDeviceListener {
@@ -23,6 +24,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     // HUD
     private View statusSuperG, statusController;
     private TextView tvRoll, tvPitch, tvYaw, tvThr;
+    
+    // Debug UI
+    private Button btnRefreshDevices;
+    private TextView tvGamepadDevice, tvGamepadButtons, tvGamepadAxes, tvGamepadTriggers;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
@@ -73,6 +78,19 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         tvPitch  = findViewById(R.id.tvPitch);
         tvYaw    = findViewById(R.id.tvYaw);
         tvThr    = findViewById(R.id.tvThr);
+        
+        // Debug UI
+        btnRefreshDevices = findViewById(R.id.btnRefreshDevices);
+        tvGamepadDevice = findViewById(R.id.tvGamepadDevice);
+        tvGamepadButtons = findViewById(R.id.tvGamepadButtons);
+        tvGamepadAxes = findViewById(R.id.tvGamepadAxes);
+        tvGamepadTriggers = findViewById(R.id.tvGamepadTriggers);
+
+        // Setup refresh button
+        btnRefreshDevices.setOnClickListener(v -> {
+            android.util.Log.d("ELRS", "=== MANUAL DEVICE REFRESH ===");
+            refreshAllDevices();
+        });
 
         mgr = (UsbManager)getSystemService(USB_SERVICE);
         input = (InputManager)getSystemService(INPUT_SERVICE);
@@ -151,6 +169,31 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 connected ? R.drawable.status_circle_green : R.drawable.status_circle_red));
         }
     }
+    
+    private void refreshAllDevices() {
+        // Refresh USB devices
+        boolean foundSuperG = false;
+        if (!mgr.getDeviceList().isEmpty()) {
+            for (UsbDevice d : mgr.getDeviceList().values()) {
+                if (hasBulkOut(d)) {
+                    foundSuperG = true;
+                    if (mgr.hasPermission(d)) {
+                        boolean ok = UsbBridge.open(mgr, d);
+                        updateSuperGStatus(ok);
+                    } else {
+                        mgr.requestPermission(d, permIntent);
+                        updateSuperGStatus(false);
+                    }
+                }
+            }
+        }
+        if (!foundSuperG) {
+            updateSuperGStatus(false);
+        }
+        
+        // Refresh input devices
+        checkControllerStatus();
+    }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void registerUsbReceiver() {
@@ -210,6 +253,12 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 updateControllerStatus(true);
             }
 
+            // Update debug display with device info
+            InputDevice device = e.getDevice();
+            if (device != null && tvGamepadDevice != null) {
+                tvGamepadDevice.post(() -> tvGamepadDevice.setText("Device: " + device.getName()));
+            }
+
             float rx = getAxis(e, MotionEvent.AXIS_X);
             if (rx == 0f) rx = getAxis(e, MotionEvent.AXIS_RX);
             float ry = -getAxis(e, MotionEvent.AXIS_Y);
@@ -221,6 +270,22 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 float lt = (getAxis(e, MotionEvent.AXIS_LTRIGGER)+1f)*0.5f;
                 float rt = (getAxis(e, MotionEvent.AXIS_RTRIGGER)+1f)*0.5f;
                 if (rt > 0.05f || lt > 0.05f) thr = rt; // pick RT as throttle
+            }
+
+            // Update debug display with axes values
+            if (tvGamepadAxes != null) {
+                final String axesText = String.format("Axes: X:%.2f Y:%.2f RX:%.2f RY:%.2f", 
+                    getAxis(e, MotionEvent.AXIS_X), getAxis(e, MotionEvent.AXIS_Y),
+                    getAxis(e, MotionEvent.AXIS_RX), getAxis(e, MotionEvent.AXIS_RY));
+                tvGamepadAxes.post(() -> tvGamepadAxes.setText(axesText));
+            }
+            
+            // Update debug display with trigger values
+            if (tvGamepadTriggers != null) {
+                final String triggerText = String.format("Triggers: LT:%.2f RT:%.2f RZ:%.2f", 
+                    getAxis(e, MotionEvent.AXIS_LTRIGGER), getAxis(e, MotionEvent.AXIS_RTRIGGER),
+                    getAxis(e, MotionEvent.AXIS_RZ));
+                tvGamepadTriggers.post(() -> tvGamepadTriggers.setText(triggerText));
             }
 
             lastRoll = rx; lastPitch = ry; lastYaw = rz; lastThr = thr;
@@ -244,8 +309,45 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 android.util.Log.d("ELRS", "Controller detected via key event!");
                 updateControllerStatus(true);
             }
+            
+            // Update debug display with button press
+            if (tvGamepadButtons != null) {
+                String buttonName = KeyEvent.keyCodeToString(keyCode);
+                final String buttonText = "Button: " + buttonName + " DOWN";
+                tvGamepadButtons.post(() -> tvGamepadButtons.setText(buttonText));
+                
+                // Clear button display after a short delay
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (tvGamepadButtons != null) {
+                        tvGamepadButtons.setText("Buttons: ---");
+                    }
+                }, 500);
+            }
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        // Check if this is a gamepad key
+        if (((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
+            ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0)) {
+            
+            // Update debug display with button release
+            if (tvGamepadButtons != null) {
+                String buttonName = KeyEvent.keyCodeToString(keyCode);
+                final String buttonText = "Button: " + buttonName + " UP";
+                tvGamepadButtons.post(() -> tvGamepadButtons.setText(buttonText));
+                
+                // Clear button display after a short delay
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (tvGamepadButtons != null) {
+                        tvGamepadButtons.setText("Buttons: ---");
+                    }
+                }, 500);
+            }
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     private static float getAxis(MotionEvent e, int axis) {
