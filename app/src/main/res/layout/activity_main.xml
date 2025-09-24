@@ -1,0 +1,78 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:keepScreenOn="true">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:layout_gravity="top">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:text="USB: —"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/tvHint"
+            android:text="Move sticks / triggers. SuperG via OTG."
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvRoll"
+            android:text="ROLL: 0.00"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/tvPitch"
+            android:text="PITCH: 0.00"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/tvYaw"
+            android:text="YAW: 0.00"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/tvThr"
+            android:text="THR: 0.00"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:fontFamily="monospace"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+</FrameLayout>
