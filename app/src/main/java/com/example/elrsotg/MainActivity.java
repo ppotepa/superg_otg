@@ -313,8 +313,9 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 tvGamepadDevice.post(() -> tvGamepadDevice.setText(nameLabel));
             }
             if (tvControllerName != null) {
+                final String finalDetectedName = detectedName;
                 tvControllerName.post(() -> {
-                    tvControllerName.setText(detectedName);
+                    tvControllerName.setText(finalDetectedName);
                     tvControllerName.setVisibility(View.VISIBLE);
                 });
             }
