@@ -289,6 +289,28 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 android.util.Log.d("ELRS", String.format("  JOYSTICK: %s", (sources & InputDevice.SOURCE_JOYSTICK) != 0));
                 android.util.Log.d("ELRS", String.format("  GAMEPAD: %s", (sources & InputDevice.SOURCE_GAMEPAD) != 0));
                 android.util.Log.d("ELRS", String.format("  DPAD: %s", (sources & InputDevice.SOURCE_DPAD) != 0));
+                android.util.Log.d("ELRS", String.format("  KEYBOARD: %s", (sources & InputDevice.SOURCE_KEYBOARD) != 0));
+                android.util.Log.d("ELRS", String.format("  MOUSE: %s", (sources & InputDevice.SOURCE_MOUSE) != 0));
+                android.util.Log.d("ELRS", String.format("  TOUCHSCREEN: %s", (sources & InputDevice.SOURCE_TOUCHSCREEN) != 0));
+                android.util.Log.d("ELRS", String.format("  TRACKBALL: %s", (sources & InputDevice.SOURCE_TRACKBALL) != 0));
+                android.util.Log.d("ELRS", String.format("  TOUCHPAD: %s", (sources & InputDevice.SOURCE_TOUCHPAD) != 0));
+                android.util.Log.d("ELRS", String.format("  STYLUS: %s", (sources & InputDevice.SOURCE_STYLUS) != 0));
+                android.util.Log.d("ELRS", String.format("  BLUETOOTH_STYLUS: %s", (sources & InputDevice.SOURCE_BLUETOOTH_STYLUS) != 0));
+                android.util.Log.d("ELRS", String.format("  ROTARY_ENCODER: %s", (sources & InputDevice.SOURCE_ROTARY_ENCODER) != 0));
+                
+                // Check if this might be the 8BitDo controller based on name
+                String deviceName = device.getName();
+                if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
+                                         deviceName.toLowerCase().contains("ultimate") ||
+                                         deviceName.toLowerCase().contains("gaming"))) {
+                    android.util.Log.d("ELRS", "  *** POTENTIAL 8BITDO CONTROLLER FOUND ***");
+                    android.util.Log.d("ELRS", "  Motion ranges available:");
+                    for (InputDevice.MotionRange range : device.getMotionRanges()) {
+                        android.util.Log.d("ELRS", String.format("    Axis %d (%s): min=%.2f max=%.2f", 
+                            range.getAxis(), MotionEvent.axisToString(range.getAxis()), 
+                            range.getMin(), range.getMax()));
+                    }
+                }
             }
 
             if (isController) {
@@ -299,6 +321,34 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 detectedName = device.getName();
                 if (!verboseLogging) {
                     break;
+                }
+            } else {
+                // Special case: Check for 8BitDo controller by name even if sources don't match
+                String deviceName = device.getName();
+                if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
+                                         deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
+                    // Check if it has any motion ranges (axes) that suggest it's a controller
+                    boolean hasAxes = false;
+                    for (InputDevice.MotionRange range : device.getMotionRanges()) {
+                        int axis = range.getAxis();
+                        if (axis == MotionEvent.AXIS_X || axis == MotionEvent.AXIS_Y ||
+                            axis == MotionEvent.AXIS_RX || axis == MotionEvent.AXIS_RY ||
+                            axis == MotionEvent.AXIS_Z || axis == MotionEvent.AXIS_RZ) {
+                            hasAxes = true;
+                            break;
+                        }
+                    }
+                    
+                    if (hasAxes) {
+                        if (verboseLogging) {
+                            android.util.Log.d("ELRS", "  -> 8BITDO CONTROLLER DETECTED BY NAME & AXES!");
+                        }
+                        hasController = true;
+                        detectedName = deviceName;
+                        if (!verboseLogging) {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -424,17 +474,29 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     }
 
     @Override public boolean onGenericMotionEvent(MotionEvent e) {
-        // More inclusive check for gamepad input
-        if (((e.getSource() & InputDevice.SOURCE_JOYSTICK) != 0 ||
-             (e.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) &&
-             e.getAction() == MotionEvent.ACTION_MOVE) {
+        // More inclusive check for gamepad input - also check for 8BitDo by name
+        boolean isGamepadSource = ((e.getSource() & InputDevice.SOURCE_JOYSTICK) != 0 ||
+                                  (e.getSource() & InputDevice.SOURCE_GAMEPAD) != 0);
+        
+        // Special case for 8BitDo controller that might not report correct sources
+        boolean is8BitDo = false;
+        InputDevice device = e.getDevice();
+        if (device != null) {
+            String deviceName = device.getName();
+            if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
+                                     deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
+                is8BitDo = true;
+            }
+        }
+        
+        if ((isGamepadSource || is8BitDo) && e.getAction() == MotionEvent.ACTION_MOVE) {
 
             // Debug: Log motion event details
             if (!controllerConnected) {
-                InputDevice device = e.getDevice();
                 android.util.Log.d("ELRS", "Motion event from device: " + 
                     (device != null ? device.getName() : "unknown"));
                 android.util.Log.d("ELRS", String.format("Source: 0x%08X", e.getSource()));
+                android.util.Log.d("ELRS", "Detected via: " + (isGamepadSource ? "Standard gamepad source" : "8BitDo name match"));
             }
 
             // Controller is active - update status
@@ -443,8 +505,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 updateControllerStatus(true);
             }
 
-            // Update debug display with device info
-            InputDevice device = e.getDevice();
+            // Update debug display with device info (device already declared above)
             if (device != null) {
                 String deviceName = device.getName();
                 if (tvGamepadDevice != null) {
@@ -496,16 +557,28 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // Check if this is a gamepad key
-        if (((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
-            ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0)) {
-            
+        // Check if this is a gamepad key or 8BitDo controller
+        boolean isGamepadSource = ((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
+                                 ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0);
+        
+        // Special case for 8BitDo controller
+        boolean is8BitDo = false;
+        InputDevice device = event.getDevice();
+        if (device != null) {
+            String deviceName = device.getName();
+            if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
+                                     deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
+                is8BitDo = true;
+            }
+        }
+        
+        if (isGamepadSource || is8BitDo) {
             // Controller is active - update status
-            InputDevice device = event.getDevice();
             if (!controllerConnected) {
                 android.util.Log.d("ELRS", "Key event from device: " + 
                     (device != null ? device.getName() : "unknown"));
                 android.util.Log.d("ELRS", "Controller detected via key event!");
+                android.util.Log.d("ELRS", "Detected via: " + (isGamepadSource ? "Standard gamepad source" : "8BitDo name match"));
                 updateControllerStatus(true);
             }
             
@@ -537,9 +610,22 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        // Check if this is a gamepad key
-        if (((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
-            ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0)) {
+        // Check if this is a gamepad key or 8BitDo controller
+        boolean isGamepadSource = ((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
+                                 ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0);
+        
+        // Special case for 8BitDo controller
+        boolean is8BitDo = false;
+        InputDevice device = event.getDevice();
+        if (device != null) {
+            String deviceName = device.getName();
+            if (deviceName != null && (deviceName.toLowerCase().contains("8bitdo") || 
+                                     deviceName.toLowerCase().contains("ultimate mobile gaming"))) {
+                is8BitDo = true;
+            }
+        }
+        
+        if (isGamepadSource || is8BitDo) {
             
             // Update debug display with button release
             if (tvGamepadButtons != null) {
