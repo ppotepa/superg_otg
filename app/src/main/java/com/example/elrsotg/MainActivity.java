@@ -21,10 +21,15 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private InputManager input;
 
     // HUD
-    private TextView tvStatus, tvRoll, tvPitch, tvYaw, tvThr;
+    private View statusSuperG, statusController;
+    private TextView tvRoll, tvPitch, tvYaw, tvThr;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
+    
+    // Device connection status
+    private boolean superGConnected = false;
+    private boolean controllerConnected = false;
 
     // JNI
     public static native void nativeSetAxes(float roll, float pitch, float yaw, float thr);
@@ -50,7 +55,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         setContentView(R.layout.activity_main);
-        tvStatus = findViewById(R.id.tvStatus);
+        statusSuperG = findViewById(R.id.statusSuperG);
+        statusController = findViewById(R.id.statusController);
         tvRoll   = findViewById(R.id.tvRoll);
         tvPitch  = findViewById(R.id.tvPitch);
         tvYaw    = findViewById(R.id.tvYaw);
@@ -71,47 +77,61 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 if (dev == null) return;
                 if (i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                     boolean ok = UsbBridge.open(mgr, dev);
-                    setStatus(ok ? "USB: connected" : "USB: open failed");
+                    updateSuperGStatus(ok);
                 } else {
-                    setStatus("USB: permission denied");
+                    updateSuperGStatus(false);
                 }
             }
         };
         registerUsbReceiver();
 
-        StringBuilder sb = new StringBuilder("USB: ");
-        if (mgr.getDeviceList().isEmpty()) {
-            setStatus("USB: device not found (replug / check OTG)");
-        } else {
+        // Check for USB devices and update status
+        boolean foundSuperG = false;
+        if (!mgr.getDeviceList().isEmpty()) {
             for (UsbDevice d : mgr.getDeviceList().values()) {
-                sb.append(dumpDevice(d));
                 if (hasBulkOut(d)) {
+                    foundSuperG = true;
                     if (mgr.hasPermission(d)) {
                         boolean ok = UsbBridge.open(mgr, d);
-                        setStatus(ok ? "USB: connected" : "USB: open failed");
+                        updateSuperGStatus(ok);
                     } else {
                         mgr.requestPermission(d, permIntent);
-                        setStatus(String.format("USB: requesting %04x:%04x…", d.getVendorId(), d.getProductId()));
+                        updateSuperGStatus(false); // Will be updated when permission is granted
                     }
                 }
             }
-            setStatus(sb.toString());
+        }
+        
+        if (!foundSuperG) {
+            updateSuperGStatus(false);
         }
 
         // auto request for already-plugged device(s)
-        boolean any = false;
         for (UsbDevice d : mgr.getDeviceList().values()) {
-            any = true;
             maybeRequest(d);
         }
-        setStatus(any ? "USB: requesting permission…" : "USB: device not found");
 
+        // Check initial controller status
+        checkControllerStatus();
+        
         nativeStart();
         tvRoll.post(uiTick);
     }
 
-    private void setStatus(final String s) {
-        if (tvStatus != null) tvStatus.post(() -> tvStatus.setText(s));
+    private void updateSuperGStatus(boolean connected) {
+        superGConnected = connected;
+        if (statusSuperG != null) {
+            statusSuperG.post(() -> statusSuperG.setBackgroundResource(
+                connected ? R.drawable.status_circle_green : R.drawable.status_circle_red));
+        }
+    }
+    
+    private void updateControllerStatus(boolean connected) {
+        controllerConnected = connected;
+        if (statusController != null) {
+            statusController.post(() -> statusController.setBackgroundResource(
+                connected ? R.drawable.status_circle_green : R.drawable.status_circle_red));
+        }
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -128,10 +148,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         if (d.getVendorId()==0x10C4 && d.getProductId()==0xEA60) {
             if (mgr.hasPermission(d)) {
                 boolean ok = UsbBridge.open(mgr, d);
-                setStatus(ok ? "USB: connected" : "USB: open failed");
+                updateSuperGStatus(ok);
             } else {
                 mgr.requestPermission(d, permIntent);
-                setStatus("USB: requesting permission…");
+                updateSuperGStatus(false); // Will be updated when permission is granted
             }
         }
     }
@@ -155,6 +175,11 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     @Override public boolean onGenericMotionEvent(MotionEvent e) {
         if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) != 0 &&
                 e.getAction() == MotionEvent.ACTION_MOVE) {
+
+            // Controller is active - update status
+            if (!controllerConnected) {
+                updateControllerStatus(true);
+            }
 
             float rx = getAxis(e, MotionEvent.AXIS_X);
             if (rx == 0f) rx = getAxis(e, MotionEvent.AXIS_RX);
@@ -230,7 +255,28 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     }
 
 
-    @Override public void onInputDeviceAdded(int id) {}
-    @Override public void onInputDeviceRemoved(int id) {}
-    @Override public void onInputDeviceChanged(int id) {}
+    @Override public void onInputDeviceAdded(int id) {
+        checkControllerStatus();
+    }
+    
+    @Override public void onInputDeviceRemoved(int id) {
+        checkControllerStatus();
+    }
+    
+    @Override public void onInputDeviceChanged(int id) {
+        checkControllerStatus();
+    }
+    
+    private void checkControllerStatus() {
+        boolean hasController = false;
+        int[] deviceIds = input.getInputDeviceIds();
+        for (int deviceId : deviceIds) {
+            InputDevice device = input.getInputDevice(deviceId);
+            if (device != null && (device.getSources() & InputDevice.SOURCE_JOYSTICK) != 0) {
+                hasController = true;
+                break;
+            }
+        }
+        updateControllerStatus(hasController);
+    }
 }
