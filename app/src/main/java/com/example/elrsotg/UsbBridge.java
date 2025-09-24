@@ -54,6 +54,10 @@ public class UsbBridge {
         conn = null;
     }
 
+    public static synchronized boolean isOpen() {
+        return conn != null && epOut != null;
+    }
+
     // JNI entry point to write bytes
     public static synchronized int write(byte[] data, int len, int timeoutMs){
         if (conn == null || epOut == null) return -1;

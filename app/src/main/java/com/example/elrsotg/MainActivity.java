@@ -28,13 +28,15 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     // Debug UI
     private Button btnRefreshDevices;
     private TextView tvGamepadDevice, tvGamepadButtons, tvGamepadAxes, tvGamepadTriggers;
+    private TextView tvControllerName;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
     
     // Device connection status
-    private boolean superGConnected = false;
-    private boolean controllerConnected = false;
+    private volatile boolean superGConnected = false;
+    private volatile boolean controllerConnected = false;
+    private volatile boolean usbPermissionRequested = false;
 
     // JNI
     public static native void nativeSetAxes(float roll, float pitch, float yaw, float thr);
@@ -42,6 +44,33 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     public static native void nativeStop();
 
     private int controllerCheckCounter = 0;
+
+    private static final long DEVICE_MONITOR_INTERVAL_MS = 1000L;
+    private HandlerThread deviceMonitorThread;
+    private Handler deviceMonitorHandler;
+
+    private final Runnable deviceMonitorTask = new Runnable() {
+        @Override public void run() {
+            boolean superG = ensureSuperGConnected();
+            updateSuperGStatus(superG);
+
+            // Check if controller is still connected AND validate it's active
+            if (controllerConnected && !validateControllerActive()) {
+                android.util.Log.d("ELRS", "Controller disconnection detected by monitor");
+                updateControllerStatus(false);
+            } else if (!controllerConnected) {
+                // Only scan for new controllers if none connected
+                boolean controller = detectController(false);
+                if (controller) {
+                    updateControllerStatus(true);
+                }
+            }
+
+            if (deviceMonitorHandler != null) {
+                deviceMonitorHandler.postDelayed(this, DEVICE_MONITOR_INTERVAL_MS);
+            }
+        }
+    };
     
     private final Runnable uiTick = new Runnable() {
         @Override public void run() {
@@ -85,8 +114,9 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         tvGamepadButtons = findViewById(R.id.tvGamepadButtons);
         tvGamepadAxes = findViewById(R.id.tvGamepadAxes);
         tvGamepadTriggers = findViewById(R.id.tvGamepadTriggers);
+        tvControllerName = findViewById(R.id.tvControllerName);
 
-        // Setup refresh button
+        clearControllerDebug();        // Setup refresh button
         btnRefreshDevices.setOnClickListener(v -> {
             android.util.Log.d("ELRS", "=== MANUAL DEVICE REFRESH ===");
             refreshAllDevices();
@@ -106,9 +136,11 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 UsbDevice dev = i.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                 if (dev == null) return;
                 if (i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                    usbPermissionRequested = false;
                     boolean ok = UsbBridge.open(mgr, dev);
                     updateSuperGStatus(ok);
                 } else {
+                    usbPermissionRequested = false;
                     updateSuperGStatus(false);
                 }
             }
@@ -150,6 +182,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             checkControllerStatus();
         }, 2000); // 2 second delay
         
+        startDeviceMonitor();
+
         nativeStart();
         tvRoll.post(uiTick);
     }
@@ -163,36 +197,188 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     }
     
     private void updateControllerStatus(boolean connected) {
+        boolean changed = controllerConnected != connected;
         controllerConnected = connected;
+        
         if (statusController != null) {
             statusController.post(() -> statusController.setBackgroundResource(
                 connected ? R.drawable.status_circle_green : R.drawable.status_circle_red));
         }
+        
+        // Show/hide controller name
+        if (tvControllerName != null) {
+            if (connected) {
+                tvControllerName.post(() -> tvControllerName.setVisibility(View.VISIBLE));
+            } else {
+                tvControllerName.post(() -> tvControllerName.setVisibility(View.INVISIBLE));
+            }
+        }
+        
+        if (!connected && changed) {
+            clearControllerDebug();
+        }
     }
     
     private void refreshAllDevices() {
-        // Refresh USB devices
-        boolean foundSuperG = false;
-        if (!mgr.getDeviceList().isEmpty()) {
-            for (UsbDevice d : mgr.getDeviceList().values()) {
-                if (hasBulkOut(d)) {
-                    foundSuperG = true;
-                    if (mgr.hasPermission(d)) {
-                        boolean ok = UsbBridge.open(mgr, d);
-                        updateSuperGStatus(ok);
-                    } else {
-                        mgr.requestPermission(d, permIntent);
-                        updateSuperGStatus(false);
-                    }
+        boolean superG = ensureSuperGConnected();
+        updateSuperGStatus(superG);
+
+        boolean controller = detectController(true);
+        updateControllerStatus(controller);
+    }
+
+    private boolean ensureSuperGConnected() {
+        if (mgr == null) return false;
+
+        UsbDevice target = null;
+        for (UsbDevice device : mgr.getDeviceList().values()) {
+            if (hasBulkOut(device)) {
+                target = device;
+                break;
+            }
+        }
+
+        if (target == null) {
+            UsbBridge.close();
+            usbPermissionRequested = false;
+            return false;
+        }
+
+        if (!mgr.hasPermission(target)) {
+            if (!usbPermissionRequested) {
+                mgr.requestPermission(target, permIntent);
+                usbPermissionRequested = true;
+            }
+            return UsbBridge.isOpen();
+        }
+
+        if (!UsbBridge.isOpen()) {
+            boolean opened = UsbBridge.open(mgr, target);
+            if (!opened) {
+                return false;
+            }
+        }
+
+        usbPermissionRequested = false;
+        return UsbBridge.isOpen();
+    }
+
+    private boolean detectController(boolean verboseLogging) {
+        if (input == null) return false;
+
+        int[] deviceIds = input.getInputDeviceIds();
+        if (verboseLogging) {
+            android.util.Log.d("ELRS", "=== Checking Input Devices ===");
+            android.util.Log.d("ELRS", "Found " + deviceIds.length + " input devices");
+        }
+
+        boolean hasController = false;
+        String detectedName = null;
+
+        for (int deviceId : deviceIds) {
+            InputDevice device = input.getInputDevice(deviceId);
+            if (device == null) continue;
+
+            int sources = device.getSources();
+            boolean isController = (sources & InputDevice.SOURCE_JOYSTICK) != 0 ||
+                                   (sources & InputDevice.SOURCE_GAMEPAD) != 0;
+
+            if (verboseLogging) {
+                android.util.Log.d("ELRS", String.format("Device[%d]: %s", deviceId, device.getName()));
+                android.util.Log.d("ELRS", String.format("  Sources: 0x%08X", sources));
+                android.util.Log.d("ELRS", String.format("  JOYSTICK: %s", (sources & InputDevice.SOURCE_JOYSTICK) != 0));
+                android.util.Log.d("ELRS", String.format("  GAMEPAD: %s", (sources & InputDevice.SOURCE_GAMEPAD) != 0));
+                android.util.Log.d("ELRS", String.format("  DPAD: %s", (sources & InputDevice.SOURCE_DPAD) != 0));
+            }
+
+            if (isController) {
+                if (verboseLogging) {
+                    android.util.Log.d("ELRS", "  -> CONTROLLER DETECTED!");
+                }
+                hasController = true;
+                detectedName = device.getName();
+                if (!verboseLogging) {
+                    break;
                 }
             }
         }
-        if (!foundSuperG) {
-            updateSuperGStatus(false);
+
+        if (verboseLogging) {
+            android.util.Log.d("ELRS", "Controller status: " + hasController);
         }
+
+        if (hasController && detectedName != null) {
+            if (tvGamepadDevice != null) {
+                final String nameLabel = "Device: " + detectedName;
+                tvGamepadDevice.post(() -> tvGamepadDevice.setText(nameLabel));
+            }
+            if (tvControllerName != null) {
+                tvControllerName.post(() -> {
+                    tvControllerName.setText(detectedName);
+                    tvControllerName.setVisibility(View.VISIBLE);
+                });
+            }
+        }
+
+        return hasController;
+    }
+
+    private void clearControllerDebug() {
+        if (tvGamepadDevice != null) {
+            tvGamepadDevice.post(() -> tvGamepadDevice.setText("Device: None"));
+        }
+        if (tvGamepadButtons != null) {
+            tvGamepadButtons.post(() -> tvGamepadButtons.setText("Buttons: ---"));
+        }
+        if (tvGamepadAxes != null) {
+            tvGamepadAxes.post(() -> tvGamepadAxes.setText("Axes: ---"));
+        }
+        if (tvGamepadTriggers != null) {
+            tvGamepadTriggers.post(() -> tvGamepadTriggers.setText("Triggers: ---"));
+        }
+        if (tvControllerName != null) {
+            tvControllerName.post(() -> tvControllerName.setVisibility(View.INVISIBLE));
+        }
+    }
+
+    private void startDeviceMonitor() {
+        if (deviceMonitorThread != null) return;
+
+        deviceMonitorThread = new HandlerThread("DeviceMonitor");
+        deviceMonitorThread.start();
+        deviceMonitorHandler = new Handler(deviceMonitorThread.getLooper());
+        deviceMonitorHandler.post(deviceMonitorTask);
+    }
+
+    private void stopDeviceMonitor() {
+        if (deviceMonitorHandler != null) {
+            deviceMonitorHandler.removeCallbacksAndMessages(null);
+            deviceMonitorHandler = null;
+        }
+        if (deviceMonitorThread != null) {
+            deviceMonitorThread.quitSafely();
+            deviceMonitorThread = null;
+        }
+    }
+
+    private boolean validateControllerActive() {
+        if (input == null) return false;
         
-        // Refresh input devices
-        checkControllerStatus();
+        // Get all controllers that are currently connected
+        int[] deviceIds = input.getInputDeviceIds();
+        for (int deviceId : deviceIds) {
+            InputDevice device = input.getInputDevice(deviceId);
+            if (device != null) {
+                int sources = device.getSources();
+                if ((sources & InputDevice.SOURCE_JOYSTICK) != 0 || 
+                    (sources & InputDevice.SOURCE_GAMEPAD) != 0) {
+                    // Found active controller
+                    return true;
+                }
+            }
+        }
+        // No active controller found
+        return false;
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -211,7 +397,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 boolean ok = UsbBridge.open(mgr, d);
                 updateSuperGStatus(ok);
             } else {
-                mgr.requestPermission(d, permIntent);
+                if (!usbPermissionRequested) {
+                    mgr.requestPermission(d, permIntent);
+                    usbPermissionRequested = true;
+                }
                 updateSuperGStatus(false); // Will be updated when permission is granted
             }
         }
@@ -255,8 +444,17 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
             // Update debug display with device info
             InputDevice device = e.getDevice();
-            if (device != null && tvGamepadDevice != null) {
-                tvGamepadDevice.post(() -> tvGamepadDevice.setText("Device: " + device.getName()));
+            if (device != null) {
+                String deviceName = device.getName();
+                if (tvGamepadDevice != null) {
+                    tvGamepadDevice.post(() -> tvGamepadDevice.setText("Device: " + deviceName));
+                }
+                if (tvControllerName != null) {
+                    tvControllerName.post(() -> {
+                        tvControllerName.setText(deviceName);
+                        tvControllerName.setVisibility(View.VISIBLE);
+                    });
+                }
             }
 
             float rx = getAxis(e, MotionEvent.AXIS_X);
@@ -302,12 +500,21 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0)) {
             
             // Controller is active - update status
+            InputDevice device = event.getDevice();
             if (!controllerConnected) {
-                InputDevice device = event.getDevice();
                 android.util.Log.d("ELRS", "Key event from device: " + 
                     (device != null ? device.getName() : "unknown"));
                 android.util.Log.d("ELRS", "Controller detected via key event!");
                 updateControllerStatus(true);
+            }
+            
+            // Update controller name display
+            if (device != null && tvControllerName != null) {
+                String deviceName = device.getName();
+                tvControllerName.post(() -> {
+                    tvControllerName.setText(deviceName);
+                    tvControllerName.setVisibility(View.VISIBLE);
+                });
             }
             
             // Update debug display with button press
@@ -363,6 +570,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override protected void onDestroy() {
         super.onDestroy();
+        stopDeviceMonitor();
         try { unregisterReceiver(permRx); } catch (Exception ignored) {}
         input.unregisterInputDeviceListener(this);
         UsbBridge.close();
@@ -405,49 +613,29 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
 
     @Override public void onInputDeviceAdded(int id) {
+        android.util.Log.d("ELRS", "Input device added: " + id);
         checkControllerStatus();
     }
     
     @Override public void onInputDeviceRemoved(int id) {
-        checkControllerStatus();
+        android.util.Log.d("ELRS", "Input device removed: " + id);
+        // Force controller check with explicit remove event
+        boolean controller = detectController(true);
+        if (!controller) {
+            android.util.Log.d("ELRS", "Controller disconnected by removal event");
+            updateControllerStatus(false);
+        } else {
+            checkControllerStatus();
+        }
     }
     
     @Override public void onInputDeviceChanged(int id) {
+        android.util.Log.d("ELRS", "Input device changed: " + id);
         checkControllerStatus();
     }
     
     private void checkControllerStatus() {
-        boolean hasController = false;
-        int[] deviceIds = input.getInputDeviceIds();
-        
-        // Debug: Log all input devices
-        android.util.Log.d("ELRS", "=== Checking Input Devices ===");
-        android.util.Log.d("ELRS", "Found " + deviceIds.length + " input devices");
-        
-        for (int deviceId : deviceIds) {
-            InputDevice device = input.getInputDevice(deviceId);
-            if (device != null) {
-                int sources = device.getSources();
-                String name = device.getName();
-                
-                // Debug: Log device details
-                android.util.Log.d("ELRS", String.format("Device[%d]: %s", deviceId, name));
-                android.util.Log.d("ELRS", String.format("  Sources: 0x%08X", sources));
-                android.util.Log.d("ELRS", String.format("  JOYSTICK: %s", (sources & InputDevice.SOURCE_JOYSTICK) != 0));
-                android.util.Log.d("ELRS", String.format("  GAMEPAD: %s", (sources & InputDevice.SOURCE_GAMEPAD) != 0));
-                android.util.Log.d("ELRS", String.format("  DPAD: %s", (sources & InputDevice.SOURCE_DPAD) != 0));
-                
-                // Check for gamepad/joystick sources (more comprehensive check)
-                if ((sources & InputDevice.SOURCE_JOYSTICK) != 0 ||
-                    (sources & InputDevice.SOURCE_GAMEPAD) != 0) {
-                    android.util.Log.d("ELRS", "  -> CONTROLLER DETECTED!");
-                    hasController = true;
-                    break;
-                }
-            }
-        }
-        
-        android.util.Log.d("ELRS", "Controller status: " + hasController);
-        updateControllerStatus(hasController);
+        boolean controller = detectController(true);
+        updateControllerStatus(controller);
     }
 }
