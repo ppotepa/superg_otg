@@ -115,13 +115,15 @@ extern "C" jint JNI_OnLoad(JavaVM *vm, void *)
 // ---- ELRS MSP Command helpers ----
 static void buildMspCommand(uint8_t function, const uint8_t *payload, uint8_t payloadSize, std::array<uint8_t, 64> &out, uint8_t &outSize)
 {
-    // CRSF MSP frame: SYNC ADDR LEN TYPE DEST ORIG FUNCTION PAYLOADSIZE [PAYLOAD] CRC
+    // CRSF MSP frame: SYNC LEN TYPE DEST ORIG FUNCTION PAYLOADSIZE [PAYLOAD] CRC
+    // Fixed: LEN = 6 + payloadSize (TYPE + DEST + ORIG + FUNC + SIZE + payload + CRC)
+    // Fixed: DEST = 0xC8 (Flight Controller), ORIG = 0xEE (Transmitter)
     uint8_t idx = 0;
     out[idx++] = 0xC8;            // CRSF sync byte
-    out[idx++] = 8 + payloadSize; // frame length (without sync and length bytes)
-    out[idx++] = 0x7A;            // MSP command frame type
-    out[idx++] = 0xEE;            // destination (ELRS TX)
-    out[idx++] = 0xEA;            // origin (ELRS handset)
+    out[idx++] = 6 + payloadSize; // frame length: TYPE+DEST+ORIG+FUNC+SIZE+payload+CRC
+    out[idx++] = 0x7A;            // MSP command frame type (MSP_REQ)
+    out[idx++] = 0xC8;            // destination (Flight Controller)
+    out[idx++] = 0xEE;            // origin (Transmitter)
     out[idx++] = function;        // MSP function
     out[idx++] = payloadSize;     // payload size
 
@@ -229,4 +231,139 @@ Java_com_example_elrsotg_MainActivity_nativeSendCommand(JNIEnv *env, jclass, jst
 
     env->ReleaseStringUTFChars(command, cmd);
     return result;
+}
+
+// ---- Telemetry Reading Support ----
+static jmethodID g_read = nullptr;
+static std::atomic<bool> g_telemetryRun{false};
+
+// Forward declaration
+static void processTelemetryFrame(const uint8_t* frame, int len);
+
+static void telemetryLoop() {
+    uint8_t buffer[128];
+    uint8_t frame[64];
+    int framePos = 0;
+    bool inFrame = false;
+    uint8_t expectedLen = 0;
+    
+    while (g_telemetryRun.load()) {
+        JNIEnv* env = envGet();
+        jbyteArray arr = env->NewByteArray(128);
+        
+        // Read from USB with short timeout
+        int bytesRead = env->CallStaticIntMethod(g_bridgeClass, g_read, arr, 50);
+        
+        if (bytesRead > 0) {
+            env->GetByteArrayRegion(arr, 0, bytesRead, (jbyte*)buffer);
+            
+            // Parse CRSF frames from the data
+            for (int i = 0; i < bytesRead; i++) {
+                uint8_t byte = buffer[i];
+                
+                if (!inFrame && byte == 0xC8) {
+                    // Start of frame
+                    frame[0] = byte;
+                    framePos = 1;
+                    inFrame = true;
+                    expectedLen = 0;
+                } else if (inFrame) {
+                    frame[framePos++] = byte;
+                    
+                    if (framePos == 2) {
+                        // Got length byte
+                        expectedLen = byte;
+                        if (expectedLen > 62) { // Invalid length
+                            inFrame = false;
+                            framePos = 0;
+                        }
+                    } else if (framePos >= 3 && framePos == expectedLen + 2) {
+                        // Complete frame received
+                        processTelemetryFrame(frame, framePos);
+                        inFrame = false;
+                        framePos = 0;
+                    } else if (framePos >= 64) {
+                        // Frame too long, reset
+                        inFrame = false;
+                        framePos = 0;
+                    }
+                }
+            }
+        }
+        
+        env->DeleteLocalRef(arr);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+static void processTelemetryFrame(const uint8_t* frame, int len) {
+    if (len < 4) return;
+    
+    uint8_t type = frame[2];
+    LOGI("Received CRSF frame type: 0x%02X, len: %d", type, len);
+    
+    switch (type) {
+        case 0x14: // LINK_STATISTICS
+            if (len >= 12) {
+                int8_t rssi1 = (int8_t)frame[3];
+                int8_t rssi2 = (int8_t)frame[4];
+                uint8_t lq = frame[5];
+                int8_t snr = (int8_t)frame[6];
+                uint8_t antenna = frame[7];
+                uint8_t rf_mode = frame[8];
+                uint8_t tx_power = frame[9];
+                
+                LOGI("Link Stats: RSSI1=%ddBm, RSSI2=%ddBm, LQ=%d%%, SNR=%ddB, RF_Mode=%d, TX_Power=%d", 
+                     rssi1, rssi2, lq, snr, rf_mode, tx_power);
+            }
+            break;
+            
+        case 0x08: // BATTERY_SENSOR
+            if (len >= 8) {
+                uint16_t voltage = (frame[3] << 8) | frame[4]; // mV
+                uint16_t current = (frame[5] << 8) | frame[6]; // mA
+                uint32_t capacity = (frame[7] << 16) | (frame[8] << 8) | frame[9]; // mAh
+                
+                LOGI("Battery: %dmV, %dmA, %dmAh", voltage, current, capacity);
+            }
+            break;
+            
+        case 0x1E: // ATTITUDE
+            if (len >= 8) {
+                int16_t pitch = (int16_t)((frame[3] << 8) | frame[4]);
+                int16_t roll = (int16_t)((frame[5] << 8) | frame[6]);
+                int16_t yaw = (int16_t)((frame[7] << 8) | frame[8]);
+                
+                LOGI("Attitude: Pitch=%d, Roll=%d, Yaw=%d", pitch, roll, yaw);
+            }
+            break;
+            
+        case 0x21: // FLIGHT_MODE
+            if (len >= 4) {
+                uint8_t mode = frame[3];
+                LOGI("Flight Mode: %d", mode);
+            }
+            break;
+            
+        default:
+            LOGI("Unknown telemetry frame type: 0x%02X", type);
+            break;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_elrsotg_MainActivity_nativeStartTelemetry(JNIEnv* env, jclass) {
+    if (!g_read) {
+        g_read = env->GetStaticMethodID(g_bridgeClass, "read", "([BI)I");
+    }
+    
+    g_telemetryRun = true;
+    std::thread(telemetryLoop).detach();
+    LOGI("Telemetry reader started");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_elrsotg_MainActivity_nativeStopTelemetry(JNIEnv*, jclass) {
+    g_telemetryRun = false;
+    LOGI("Telemetry reader stopped");
 }

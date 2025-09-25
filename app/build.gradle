@@ -10,9 +10,8 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
-        // Temporarily disabled NDK build to test Java functionality
-        // ndk { abiFilters "arm64-v8a" }
-        // externalNativeBuild { cmake { cppFlags "-std=c++20" } }
+        ndk { abiFilters "arm64-v8a" }
+        externalNativeBuild { cmake { cppFlags "-std=c++20" } }
     }
 
     buildTypes {
@@ -22,8 +21,7 @@ android {
         }
     }
 
-    // Temporarily disabled CMake build to test Java functionality
-    // externalNativeBuild { cmake { path "CMakeLists.txt" } }
+    externalNativeBuild { cmake { path "CMakeLists.txt" } }
 }
 
 dependencies { }

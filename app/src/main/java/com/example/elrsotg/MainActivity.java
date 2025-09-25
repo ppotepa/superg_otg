@@ -12,8 +12,7 @@ import android.widget.Button;
 import android.widget.TextView;
 
 public class MainActivity extends Activity implements InputManager.InputDeviceListener {
-    // Native library loading disabled for simulation mode
-    // static { System.loadLibrary("elrs_otg"); }
+    static { System.loadLibrary("elrs_otg"); }
 
     private static final String ACTION_USB = "com.example.elrsotg.USB_PERMISSION";
 
@@ -68,6 +67,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     public static native void nativeStart();
     public static native void nativeStop();
     public static native boolean nativeSendCommand(String command);
+    public static native void nativeStartTelemetry();
+    public static native void nativeStopTelemetry();
 
     private int controllerCheckCounter = 0;
 
@@ -279,10 +280,29 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     }
 
     private void updateSuperGStatus(boolean connected) {
+        boolean wasConnected = superGConnected;
         superGConnected = connected;
+        
         if (statusSuperG != null) {
             statusSuperG.post(() -> statusSuperG.setBackgroundResource(
                 connected ? R.drawable.status_circle_green : R.drawable.status_circle_red));
+        }
+        
+        // Start/stop telemetry based on connection status
+        if (connected && !wasConnected) {
+            try {
+                nativeStartTelemetry();
+                android.util.Log.d("ELRS", "Telemetry reader started");
+            } catch (Exception e) {
+                android.util.Log.e("ELRS", "Failed to start telemetry", e);
+            }
+        } else if (!connected && wasConnected) {
+            try {
+                nativeStopTelemetry();
+                android.util.Log.d("ELRS", "Telemetry reader stopped");
+            } catch (Exception e) {
+                android.util.Log.e("ELRS", "Failed to stop telemetry", e);
+            }
         }
     }
     
@@ -882,22 +902,17 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             return;
         }
         
-        // Send command via native layer (temporarily stubbed for testing)
+        // Send command via native layer
         boolean success = false;
         try {
-            // TODO: Re-enable when CMake build is fixed
-            // success = nativeSendCommand(command);
-            
-            // Temporary stub for testing - simulate success for PAIR command
-            success = "PAIR".equals(command) || "BIND".equals(command);
-            android.util.Log.d("ELRS", "STUB: Simulated command " + command + " result: " + success);
+            success = nativeSendCommand(command);
         } catch (Exception e) {
             android.util.Log.e("ELRS", "Error sending command: " + command, e);
         }
         
         // Update UI with command result
         String status = success ? "SUCCESS" : "FAILED";
-        String details = success ? "Command sent to ELRS TX (SIMULATED)" : "Command transmission failed";
+        String details = success ? "Command sent to ELRS TX" : "Command transmission failed";
         updateCommandStatus(command, status, details);
         
         // Special handling for PAIR command
