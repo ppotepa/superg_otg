@@ -53,6 +53,12 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private volatile long safeExitStartTime = 0;
     private static final long SAFE_EXIT_HOLD_DURATION = 3000; // 3 seconds
     private android.app.AlertDialog exitDialog;
+    
+    // Background Input Control
+    private volatile boolean backgroundInputEnabled = true;
+    
+    // Custom Font
+    private android.graphics.Typeface customFont;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
@@ -134,9 +140,15 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 
                 // Update TX/RX status
                 if (tvTxRxStatus != null) {
-                    boolean isActive = Math.abs(lastRoll) > 0.01f || Math.abs(lastPitch) > 0.01f || 
-                                     Math.abs(lastYaw) > 0.01f || Math.abs(lastThr) > 0.01f;
-                    tvTxRxStatus.setText(isActive ? "ACTIVE" : "IDLE");
+                    if (!backgroundInputEnabled) {
+                        tvTxRxStatus.setText("INPUT DISABLED");
+                        tvTxRxStatus.setTextColor(0xFFFF0000); // Red color when disabled
+                    } else {
+                        boolean isActive = Math.abs(lastRoll) > 0.01f || Math.abs(lastPitch) > 0.01f || 
+                                         Math.abs(lastYaw) > 0.01f || Math.abs(lastThr) > 0.01f;
+                        tvTxRxStatus.setText(isActive ? "ACTIVE" : "IDLE");
+                        tvTxRxStatus.setTextColor(isActive ? 0xFF00FF00 : 0xFFFFFFFF); // Green when active, white when idle
+                    }
                 }
             }
             
@@ -155,9 +167,83 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         }
     };
 
+    private void loadCustomFont() {
+        try {
+            customFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/BigBlueTermPlusNerdFontMono-Regular.ttf");
+            android.util.Log.d("ELRS", "Custom font loaded successfully: BigBlueTermPlusNerdFontMono-Regular.ttf");
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Failed to load custom font", e);
+            customFont = android.graphics.Typeface.MONOSPACE; // Fallback to monospace
+        }
+    }
+    
+    private void applyCustomFont(android.widget.TextView textView) {
+        if (textView != null && customFont != null) {
+            textView.setTypeface(customFont);
+        }
+    }
+    
+    private void applyCustomFont(android.widget.Button button) {
+        if (button != null && customFont != null) {
+            button.setTypeface(customFont);
+        }
+    }
+    
+    private void applyCustomFontToAllTextViews() {
+        // RC Channel displays
+        applyCustomFont(tvRoll);
+        applyCustomFont(tvPitch);
+        applyCustomFont(tvYaw);
+        applyCustomFont(tvThr);
+        
+        // Status displays (statusSuperG and statusController are View objects for status indicators, not text)
+        
+        // Debug UI text views
+        applyCustomFont(tvGamepadDevice);
+        applyCustomFont(tvGamepadButtons);
+        applyCustomFont(tvGamepadAxes);
+        applyCustomFont(tvControllerName);
+        applyCustomFont(tvDeviceDetails);
+        
+        // TX/RX Graph status
+        applyCustomFont(tvTxRxStatus);
+        applyCustomFont(tvPacketRate);
+        
+        // 3D View and Camera status
+        applyCustomFont(tv3DStatus);
+        applyCustomFont(tvCameraStatus);
+        
+        // Debug buttons
+        applyCustomFont(btnRefreshDevices);
+        applyCustomFont(btnCycleDevices);
+        applyCustomFont(btnDumpAllDevices);
+        applyCustomFont(btnToggleRawMode);
+        applyCustomFont(btnTestRoot);
+        applyCustomFont(btnRootDetect);
+        
+        android.util.Log.d("ELRS", "Custom font applied to all text views and buttons");
+    }
+    
+    private void provideCustomFontToCustomViews() {
+        // Provide custom font to TxRxGraphView if it needs text rendering
+        if (txRxGraph != null && customFont != null) {
+            // TxRxGraphView doesn't currently use text, but the font is available if needed
+            android.util.Log.d("ELRS", "Custom font available for TxRxGraphView");
+        }
+        
+        // Provide custom font to Rotation3DView if it needs text rendering  
+        if (rotation3DView != null && customFont != null) {
+            // Rotation3DView doesn't currently use text, but the font is available if needed
+            android.util.Log.d("ELRS", "Custom font available for Rotation3DView");
+        }
+    }
+
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        
+        // Load custom font first
+        loadCustomFont();
 
         setContentView(R.layout.activity_main);
         statusSuperG = findViewById(R.id.statusSuperG);
@@ -196,6 +282,12 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         tvCameraStatus = findViewById(R.id.tvCameraStatus);
         rotation3DView = findViewById(R.id.rotation3DView);
         cameraTextureView = findViewById(R.id.cameraTextureView);
+
+        // Apply custom font to all text views
+        applyCustomFontToAllTextViews();
+        
+        // Provide custom font to custom views
+        provideCustomFontToCustomViews();
 
         clearControllerDebug();
         setupDebugButtons();
@@ -1244,7 +1336,17 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             // Live axis values now shown in device details section
 
             lastRoll = rx; lastPitch = ry; lastYaw = rz; lastThr = thr;
-            nativeSetAxes(rx, ry, rz, thr);
+            
+            // Only send axes to native layer if background input is enabled
+            // This stops drone control when B+X exit sequence is active
+            if (backgroundInputEnabled) {
+                nativeSetAxes(rx, ry, rz, thr);
+            } else {
+                // Log occasionally that input is being blocked (not every frame to avoid spam)
+                if (System.currentTimeMillis() % 1000 < 50) { // Log roughly once per second
+                    android.util.Log.d("ELRS", "Controller input blocked - axes not sent to drone (B+X active)");
+                }
+            }
             return true;
         }
         return super.onGenericMotionEvent(e);
@@ -1446,6 +1548,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 safeExitStartTime = System.currentTimeMillis();
                 android.util.Log.d("ELRS", "Safe exit sequence started - hold for 3 seconds");
                 
+                // STOP background input processing when B+X are pressed
+                backgroundInputEnabled = false;
+                android.util.Log.d("ELRS", "Background input processing DISABLED - drone control stopped");
+                
                 // Show danger dialog with countdown
                 showExitCountdownDialog();
             }
@@ -1475,6 +1581,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             iconView.setTextColor(0xFFFF0000); // Bright red
             iconView.setGravity(android.view.Gravity.CENTER);
             iconView.setPadding(0, 0, 0, 20);
+            applyCustomFont(iconView); // Apply custom font
             customLayout.addView(iconView);
             
             // Warning message
@@ -1484,6 +1591,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             messageView.setTextColor(0xFFFFAAAA);
             messageView.setGravity(android.view.Gravity.CENTER);
             messageView.setPadding(0, 0, 0, 20);
+            applyCustomFont(messageView); // Apply custom font
             customLayout.addView(messageView);
             
             // Countdown display
@@ -1492,7 +1600,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             countdownView.setTextSize(48);
             countdownView.setTextColor(0xFFFF0000); // Bright red countdown
             countdownView.setGravity(android.view.Gravity.CENTER);
-            countdownView.setTypeface(null, android.graphics.Typeface.BOLD);
+            countdownView.setTypeface(customFont, android.graphics.Typeface.BOLD); // Apply custom font with bold
             customLayout.addView(countdownView);
             
             // Create dialog with special flags to prevent dismissal
@@ -1611,6 +1719,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         if (safeExitStartTime > 0) {
             android.util.Log.d("ELRS", "Safe exit sequence cancelled");
             safeExitStartTime = 0;
+            
+            // RE-ENABLE background input processing when B+X are released
+            backgroundInputEnabled = true;
+            android.util.Log.d("ELRS", "Background input processing ENABLED - drone control resumed");
             
             // Dismiss dialog if showing
             if (exitDialog != null && exitDialog.isShowing()) {
