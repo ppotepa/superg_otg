@@ -1,333 +1,621 @@
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Professional Debug Layout for Landscape Orientation -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
+    android:orientation="vertical"
+    android:background="#0F0F0F"
     android:keepScreenOn="true">
 
+    <!-- Top Section: Status and Control Panel -->
     <LinearLayout
-        android:orientation="vertical"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="16dp"
-        android:layout_gravity="top">
+        android:layout_height="0dp"
+        android:layout_weight="0.7"
+        android:orientation="horizontal"
+        android:padding="8dp">
 
-        <!-- SuperG Status Row -->
+        <!-- Left Panel: Status and Controls -->
         <LinearLayout
-            android:orientation="horizontal"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
+            android:layout_width="0dp"
+            android:layout_weight="0.4"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#1A1A1A"
+            android:padding="12dp"
+            android:layout_marginEnd="4dp">
 
-            <View
-                android:id="@+id/statusSuperG"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:background="@drawable/status_circle_red"
-                android:layout_marginEnd="12dp"/>
-
+            <!-- Status Header -->
             <TextView
-                android:text="SuperG TX"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
+                android:text="SYSTEM STATUS"
+                android:textColor="#00FF00"
+                android:textSize="14sp"
                 android:fontFamily="monospace"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-
-        </LinearLayout>
-
-        <!-- Controller Status Row -->
-        <LinearLayout
-            android:orientation="horizontal"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
-
-            <View
-                android:id="@+id/statusController"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:background="@drawable/status_circle_red"
-                android:layout_marginEnd="12dp"/>
-
-            <TextView
-                android:text="Controller"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:fontFamily="monospace"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
-
-            <TextView
-                android:id="@+id/tvControllerName"
-                android:layout_width="wrap_content"
+                android:textStyle="bold"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="#AAAAAA"
+                android:background="#333333"
+                android:padding="6dp"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- SuperG Status -->
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="6dp">
+
+                <View
+                    android:id="@+id/statusSuperG"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:background="@drawable/status_circle_red"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:text="SuperG TX:"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="80dp"/>
+
+                <TextView
+                    android:text="DISCONNECTED"
+                    android:textColor="#FF4444"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <!-- Controller Status -->
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <View
+                    android:id="@+id/statusController"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:background="@drawable/status_circle_red"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:text="Controller:"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="80dp"/>
+
+                <TextView
+                    android:id="@+id/tvControllerName"
+                    android:text="NONE"
+                    android:textColor="#FF4444"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"/>
+            </LinearLayout>
+
+            <!-- Control Buttons Grid -->
+            <TextView
+                android:text="DEBUG CONTROLS"
+                android:textColor="#FFAA00"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
-                android:layout_marginStart="8dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:visibility="invisible"/>
+                android:textStyle="bold"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#333333"
+                android:padding="4dp"
+                android:layout_marginBottom="8dp"/>
+
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp">
+                
+                <Button
+                    android:id="@+id/btnRefreshDevices"
+                    android:text="REFRESH"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#555555"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="2dp"/>
+                    
+                <Button
+                    android:id="@+id/btnCycleDevices"
+                    android:text="NEXT DEV"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#555555"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="2dp"/>
+                    
+                <Button
+                    android:id="@+id/btnDumpAllDevices"
+                    android:text="DUMP ALL"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#555555"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"/>
+            </LinearLayout>
+            
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp">
+                
+                <Button
+                    android:id="@+id/btnToggleRawMode"
+                    android:text="FORCE dm8150"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#666600"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="2dp"/>
+                    
+                <Button
+                    android:id="@+id/btnTestRoot"
+                    android:text="TEST ROOT"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#880088"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="2dp"/>
+                    
+                <Button
+                    android:id="@+id/btnRootDetect"
+                    android:text="ROOT DETECT"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#008800"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"/>
+            </LinearLayout>
+
+            <!-- Hint Text -->
+            <TextView
+                android:id="@+id/tvHint"
+                android:text="Move sticks/triggers. SuperG via OTG."
+                android:textColor="#888888"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:padding="4dp"
+                android:background="#222222"/>
 
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvHint"
-            android:text="Move sticks / triggers. SuperG via OTG."
-            android:textColor="#AAAAAA"
-            android:textSize="14sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"/>
-            
-        <!-- Debug Control Buttons -->
+        <!-- Center Panel: Three-Row Layout -->
         <LinearLayout
-            android:orientation="horizontal"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
-            
-            <Button
-                android:id="@+id/btnRefreshDevices"
-                android:text="Refresh"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#444444"
-                android:textSize="10sp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="6dp"
-                android:layout_marginEnd="4dp"/>
-                
-            <Button
-                android:id="@+id/btnCycleDevices"
-                android:text="Next Device"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#444444"
-                android:textSize="10sp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="6dp"
-                android:layout_marginEnd="4dp"/>
-                
-            <Button
-                android:id="@+id/btnDumpAllDevices"
-                android:text="Dump All"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#444444"
-                android:textSize="10sp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="6dp"
-                android:layout_marginEnd="4dp"/>
-                
-            <Button
-                android:id="@+id/btnToggleRawMode"
-                android:text="Force Enable dm8150"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#666600"
-                android:textSize="10sp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="6dp"/>
-        </LinearLayout>
-        
-        <!-- Second row of debug buttons -->
-        <LinearLayout
-            android:orientation="horizontal"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp">
-            
-            <Button
-                android:id="@+id/btnTestRoot"
-                android:text="Test Root"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#880088"
-                android:textSize="10sp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="6dp"
-                android:layout_marginEnd="4dp"/>
-                
-            <Button
-                android:id="@+id/btnRootDetect"
-                android:text="Root Detect"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#008800"
-                android:textSize="10sp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:padding="6dp"/>
-        </LinearLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:orientation="vertical"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:padding="16dp">
-
-        <TextView
-            android:id="@+id/tvRoll"
-            android:text="ROLL: 0.00"
-            android:textColor="#FFFFFF"
-            android:textSize="28sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:id="@+id/tvPitch"
-            android:text="PITCH: 0.00"
-            android:textColor="#FFFFFF"
-            android:textSize="28sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:id="@+id/tvYaw"
-            android:text="YAW: 0.00"
-            android:textColor="#FFFFFF"
-            android:textSize="28sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:id="@+id/tvThr"
-            android:text="THR: 0.00"
-            android:textColor="#FFFFFF"
-            android:textSize="28sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-    </LinearLayout>
-
-    <!-- Debug Gamepad Input Display -->
-    <LinearLayout
-        android:orientation="vertical"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:padding="16dp"
-        android:background="#22FFFFFF">
-
-        <TextView
-            android:text="GAMEPAD DEBUG"
-            android:textColor="#FFFF00"
-            android:textSize="14sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"/>
-
-        <TextView
-            android:id="@+id/tvGamepadDevice"
-            android:text="Device: None"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:id="@+id/tvGamepadButtons"
-            android:text="Buttons: ---"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:id="@+id/tvGamepadAxes"
-            android:text="Axes: ---"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:id="@+id/tvGamepadTriggers"
-            android:text="Triggers: ---"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"/>
-
-    </LinearLayout>
-
-    <!-- Enhanced Debug Panel -->
-    <ScrollView
-        android:layout_width="300dp"
-        android:layout_height="200dp"
-        android:layout_gravity="bottom|start"
-        android:layout_margin="8dp"
-        android:background="#33000000">
-        
-        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="0.35"
+            android:layout_height="match_parent"
             android:orientation="vertical"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="8dp">
+            android:background="#1A1A1A"
+            android:padding="4dp"
+            android:layout_marginHorizontal="2dp">
 
+            <!-- Row 1: RC Channel Values (1/3) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="#222222"
+                android:padding="8dp"
+                android:layout_marginBottom="2dp">
+
+                <TextView
+                    android:text="RC CHANNELS"
+                    android:textColor="#00FFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <TextView
+                        android:id="@+id/tvRoll"
+                        android:text="R:1500"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:background="#333333"
+                        android:padding="4dp"
+                        android:gravity="center"
+                        android:layout_marginEnd="2dp"/>
+
+                    <TextView
+                        android:id="@+id/tvPitch"
+                        android:text="P:1500"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:background="#333333"
+                        android:padding="4dp"
+                        android:gravity="center"
+                        android:layout_marginHorizontal="1dp"/>
+
+                    <TextView
+                        android:id="@+id/tvYaw"
+                        android:text="Y:1500"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:background="#333333"
+                        android:padding="4dp"
+                        android:gravity="center"
+                        android:layout_marginHorizontal="1dp"/>
+
+                    <TextView
+                        android:id="@+id/tvThr"
+                        android:text="T:1000"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:background="#333333"
+                        android:padding="4dp"
+                        android:gravity="center"
+                        android:layout_marginStart="2dp"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Row 2: 3D Rotation View (1/3) -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="#1A1A1A"
+                android:layout_marginVertical="1dp">
+
+                <TextView
+                    android:text="3D ROTATION"
+                    android:textColor="#FF8800"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|center_horizontal"
+                    android:background="#333333"
+                    android:padding="4dp"
+                    android:layout_margin="4dp"/>
+
+                <!-- 3D View Container -->
+                <com.example.elrsotg.Rotation3DView
+                    android:id="@+id/rotation3DView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_margin="4dp"/>
+
+                <!-- 3D Orientation Text Overlay -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:alpha="0.8">
+
+                    <TextView
+                        android:id="@+id/tv3DStatus"
+                        android:text="ROLL: 0°\nPITCH: 0°\nYAW: 0°"
+                        android:textColor="#00FF00"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="#AA000000"
+                        android:padding="6dp"
+                        android:gravity="center"/>
+
+                </LinearLayout>
+
+            </FrameLayout>
+
+            <!-- Row 3: Camera Preview (1/3) -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="#1A1A1A"
+                android:layout_marginTop="2dp">
+
+                <TextView
+                    android:text="CAMERA PREVIEW"
+                    android:textColor="#FF0088"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:textStyle="bold"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|center_horizontal"
+                    android:background="#333333"
+                    android:padding="4dp"
+                    android:layout_margin="4dp"/>
+
+                <!-- Camera Preview Container -->
+                <FrameLayout
+                    android:id="@+id/cameraPreviewContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#0A0A0A"
+                    android:layout_margin="4dp">
+
+                    <!-- Camera Surface View will be added programmatically -->
+                    <TextureView
+                        android:id="@+id/cameraTextureView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"/>
+
+                    <!-- Camera Status Overlay -->
+                    <TextView
+                        android:id="@+id/tvCameraStatus"
+                        android:text="CAMERA: DISCONNECTED"
+                        android:textColor="#FF4444"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|center_horizontal"
+                        android:background="#AA000000"
+                        android:padding="4dp"
+                        android:layout_margin="4dp"/>
+
+                </FrameLayout>
+
+            </FrameLayout>
+
+        </LinearLayout>
+
+        <!-- Right Panel: Debug Info -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="0.25"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#1A1A1A"
+            android:padding="8dp"
+            android:layout_marginStart="4dp">
+
+            <!-- Raw Input Debug -->
+            <TextView
+                android:text="RAW INPUT"
+                android:textColor="#FFFF00"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#333333"
+                android:padding="4dp"
+                android:layout_marginBottom="6dp"/>
+
+            <TextView
+                android:id="@+id/tvGamepadDevice"
+                android:text="Device: None"
+                android:textColor="#CCCCCC"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="2dp"/>
+
+            <TextView
+                android:id="@+id/tvGamepadButtons"
+                android:text="Buttons: ----"
+                android:textColor="#CCCCCC"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="2dp"/>
+
+            <TextView
+                android:id="@+id/tvGamepadAxes"
+                android:text="Axes: ----"
+                android:textColor="#CCCCCC"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- Device Details -->
             <TextView
                 android:text="DEVICE DETAILS"
                 android:textColor="#00FFFF"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"/>
-
-            <TextView
-                android:id="@+id/tvDeviceDetails"
-                android:text="Press 'Next Device' to cycle through input devices"
-                android:textColor="#FFFFFF"
-                android:textSize="10sp"
-                android:fontFamily="monospace"
+                android:textStyle="bold"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content"
+                android:background="#333333"
+                android:padding="4dp"
+                android:layout_marginBottom="6dp"/>
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="#222222">
+                
+                <TextView
+                    android:id="@+id/tvDeviceDetails"
+                    android:text="Press 'NEXT DEV' to cycle devices"
+                    android:textColor="#AAAAAA"
+                    android:textSize="8sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="4dp"/>
+            </ScrollView>
 
         </LinearLayout>
-    </ScrollView>
-    
-    <!-- Real-time Axis Monitor -->
-    <LinearLayout
-        android:orientation="vertical"
-        android:layout_width="250dp"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="8dp"
-        android:padding="8dp"
-        android:background="#33000000">
-
-        <TextView
-            android:text="AXIS MONITOR"
-            android:textColor="#FF8800"
-            android:textSize="12sp"
-            android:fontFamily="monospace"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"/>
-
-        <TextView
-            android:id="@+id/tvRawAxes"
-            android:text="Scanning for devices with motion ranges..."
-            android:textColor="#FFFFFF"
-            android:textSize="10sp"
-            android:fontFamily="monospace"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
 
     </LinearLayout>
 
-</FrameLayout>
+    <!-- Bottom Section: TX/RX Graph -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.3"
+        android:orientation="vertical"
+        android:background="#1A1A1A"
+        android:padding="8dp">
+
+        <!-- Graph Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="#333333"
+            android:padding="6dp"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:text="TX/RX DATA GRAPH"
+                android:textColor="#00FF00"
+                android:textSize="14sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"/>
+
+            <TextView
+                android:id="@+id/tvTxRxStatus"
+                android:text="IDLE"
+                android:textColor="#FFAA00"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="#555555"
+                android:padding="4dp"/>
+
+        </LinearLayout>
+
+        <!-- Graph Container -->
+        <FrameLayout
+            android:id="@+id/graphContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="#000000"
+            android:padding="4dp">
+
+            <!-- Custom TX/RX Graph View -->
+            <com.example.elrsotg.TxRxGraphView
+                android:id="@+id/txRxGraph"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
+
+            <!-- Graph Labels Overlay -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="bottom"
+                android:padding="4dp">
+
+                <TextView
+                    android:text="TX"
+                    android:textColor="#00FF00"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="#AA333333"
+                    android:padding="3dp"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:text="RX"
+                    android:textColor="#0088FF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="#AA333333"
+                    android:padding="3dp"/>
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="1dp"/>
+
+                <TextView
+                    android:id="@+id/tvPacketRate"
+                    android:text="TX: 0Hz RX: 0Hz"
+                    android:textColor="#FFFF00"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="#AA333333"
+                    android:padding="3dp"/>
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

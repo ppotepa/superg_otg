@@ -27,15 +27,32 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     
     // Debug UI
     private Button btnRefreshDevices;
-    private TextView tvGamepadDevice, tvGamepadButtons, tvGamepadAxes, tvGamepadTriggers;
+    private TextView tvGamepadDevice, tvGamepadButtons, tvGamepadAxes;
     private TextView tvControllerName;
     
     // Enhanced debug UI
     private Button btnCycleDevices, btnDumpAllDevices, btnToggleRawMode;
     private Button btnTestRoot, btnRootDetect;
-    private TextView tvDeviceDetails, tvRawAxes;
+    private TextView tvDeviceDetails;
     private java.util.concurrent.atomic.AtomicInteger currentDeviceIndex = new java.util.concurrent.atomic.AtomicInteger(0);
     private volatile boolean forceEnableDm8150 = false;
+    
+    // TX/RX Graph
+    private TxRxGraphView txRxGraph;
+    private TextView tvTxRxStatus, tvPacketRate;
+    
+    // 3D View and Camera
+    private TextView tv3DStatus, tvCameraStatus;
+    private Rotation3DView rotation3DView;
+    private TextureView cameraTextureView;
+    private volatile boolean cameraConnected = false;
+    
+    // Safe Exit Mechanism
+    private volatile boolean xButtonPressed = false;
+    private volatile boolean bButtonPressed = false;
+    private volatile long safeExitStartTime = 0;
+    private static final long SAFE_EXIT_HOLD_DURATION = 3000; // 3 seconds
+    private android.app.AlertDialog exitDialog;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
@@ -82,10 +99,45 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private final Runnable uiTick = new Runnable() {
         @Override public void run() {
             if (tvRoll != null) {
-                tvRoll.setText(String.format("ROLL: %.2f", lastRoll));
-                tvPitch.setText(String.format("PITCH: %.2f", lastPitch));
-                tvYaw.setText(String.format("YAW: %.2f", lastYaw));
-                tvThr.setText(String.format("THR: %.2f", lastThr));
+                // Update RC channel displays with compact formatting
+                tvRoll.setText(String.format("R:%04.0f", (lastRoll * 500 + 1500)));
+                tvPitch.setText(String.format("P:%04.0f", (lastPitch * 500 + 1500)));
+                tvYaw.setText(String.format("Y:%04.0f", (lastYaw * 500 + 1500)));
+                tvThr.setText(String.format("T:%04.0f", (lastThr * 500 + 1500)));
+                
+                // Update 3D orientation display
+                if (tv3DStatus != null) {
+                    tv3DStatus.setText(String.format("ROLL: %.0f°\nPITCH: %.0f°\nYAW: %.0f°", 
+                        lastRoll * 45, lastPitch * 45, lastYaw * 45));
+                }
+                
+                // Update 3D rotation view
+                if (rotation3DView != null) {
+                    rotation3DView.updateRotation(lastRoll, lastPitch, lastYaw);
+                }
+                
+                // Update camera status
+                if (tvCameraStatus != null) {
+                    tvCameraStatus.setText("CAMERA: " + (cameraConnected ? "CONNECTED" : "DISCONNECTED"));
+                }
+                
+                // Update TX/RX graph with channel data
+                if (txRxGraph != null) {
+                    txRxGraph.addChannelData(lastRoll, lastPitch, lastYaw, lastThr);
+                }
+                
+                // Update packet rate display
+                if (tvPacketRate != null && txRxGraph != null) {
+                    tvPacketRate.setText(String.format("TX: %.0fHz RX: %.0fHz", 
+                        txRxGraph.getTxRate(), txRxGraph.getRxRate()));
+                }
+                
+                // Update TX/RX status
+                if (tvTxRxStatus != null) {
+                    boolean isActive = Math.abs(lastRoll) > 0.01f || Math.abs(lastPitch) > 0.01f || 
+                                     Math.abs(lastYaw) > 0.01f || Math.abs(lastThr) > 0.01f;
+                    tvTxRxStatus.setText(isActive ? "ACTIVE" : "IDLE");
+                }
             }
             
             // Periodically recheck controller status (every ~1 second)
@@ -120,7 +172,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         tvGamepadDevice = findViewById(R.id.tvGamepadDevice);
         tvGamepadButtons = findViewById(R.id.tvGamepadButtons);
         tvGamepadAxes = findViewById(R.id.tvGamepadAxes);
-        tvGamepadTriggers = findViewById(R.id.tvGamepadTriggers);
+        // tvGamepadTriggers removed in new layout
         tvControllerName = findViewById(R.id.tvControllerName);
         
         // Enhanced debug UI
@@ -128,11 +180,22 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         btnDumpAllDevices = findViewById(R.id.btnDumpAllDevices);
         btnToggleRawMode = findViewById(R.id.btnToggleRawMode);
         tvDeviceDetails = findViewById(R.id.tvDeviceDetails);
-        tvRawAxes = findViewById(R.id.tvRawAxes);
+        // tvRawAxes now used for packet rate display
         
         // Root testing buttons
         btnTestRoot = findViewById(R.id.btnTestRoot);
         btnRootDetect = findViewById(R.id.btnRootDetect);
+        
+        // TX/RX Graph
+        txRxGraph = findViewById(R.id.txRxGraph);
+        tvTxRxStatus = findViewById(R.id.tvTxRxStatus);
+        tvPacketRate = findViewById(R.id.tvPacketRate);
+        
+        // 3D View and Camera
+        tv3DStatus = findViewById(R.id.tv3DStatus);
+        tvCameraStatus = findViewById(R.id.tvCameraStatus);
+        rotation3DView = findViewById(R.id.rotation3DView);
+        cameraTextureView = findViewById(R.id.cameraTextureView);
 
         clearControllerDebug();
         setupDebugButtons();
@@ -951,7 +1014,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         handler.post(new Runnable() {
             @Override
             public void run() {
-                if (tvRawAxes != null && input != null) {
+                // Axis info now shown in device details section
+                if (false && input != null) {
                     // Get all connected devices with motion ranges
                     int[] deviceIds = input.getInputDeviceIds();
                     StringBuilder axisInfo = new StringBuilder();
@@ -990,7 +1054,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                         axisInfo.append("No devices with motion ranges found\n");
                     }
                     
-                    tvRawAxes.post(() -> tvRawAxes.setText(axisInfo.toString()));
+                    // Axis info now shown in device details
                 }
                 
                 handler.postDelayed(this, 1000); // Update every second
@@ -1008,9 +1072,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         if (tvGamepadAxes != null) {
             tvGamepadAxes.post(() -> tvGamepadAxes.setText("Axes: ---"));
         }
-        if (tvGamepadTriggers != null) {
-            tvGamepadTriggers.post(() -> tvGamepadTriggers.setText("Triggers: ---"));
-        }
+        // tvGamepadTriggers removed in new layout
         if (tvControllerName != null) {
             tvControllerName.post(() -> tvControllerName.setVisibility(View.INVISIBLE));
         }
@@ -1098,6 +1160,12 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     }
 
     @Override public boolean onGenericMotionEvent(MotionEvent e) {
+        // If exit dialog is showing, block all motion events to prevent interference
+        if (exitDialog != null && exitDialog.isShowing()) {
+            android.util.Log.d("ELRS", "Exit dialog active - blocking motion event");
+            return true; // Consume the event
+        }
+        
         // More inclusive check for gamepad input - also check for 8BitDo by name
         boolean isGamepadSource = ((e.getSource() & InputDevice.SOURCE_JOYSTICK) != 0 ||
                                   (e.getSource() & InputDevice.SOURCE_GAMEPAD) != 0);
@@ -1171,27 +1239,9 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             }
             
             // Update debug display with trigger values
-            if (tvGamepadTriggers != null) {
-                final String triggerText = String.format("Triggers: LT:%.2f RT:%.2f RZ:%.2f", 
-                    getAxis(e, MotionEvent.AXIS_LTRIGGER), getAxis(e, MotionEvent.AXIS_RTRIGGER),
-                    getAxis(e, MotionEvent.AXIS_RZ));
-                tvGamepadTriggers.post(() -> tvGamepadTriggers.setText(triggerText));
-            }
+            // Trigger info now included in axes display
             
-            // Update real-time axis monitor with live values
-            if (tvRawAxes != null && device != null) {
-                StringBuilder liveAxes = new StringBuilder();
-                liveAxes.append("LIVE: ").append(device.getName()).append("\n");
-                liveAxes.append("X:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_X)));
-                liveAxes.append(" Y:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_Y)));
-                liveAxes.append(" RX:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RX)));
-                liveAxes.append(" RY:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RY))).append("\n");
-                liveAxes.append("LT:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_LTRIGGER)));
-                liveAxes.append(" RT:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RTRIGGER)));
-                liveAxes.append(" RZ:").append(String.format("%.2f", getAxis(e, MotionEvent.AXIS_RZ)));
-                
-                tvRawAxes.post(() -> tvRawAxes.setText(liveAxes.toString()));
-            }
+            // Live axis values now shown in device details section
 
             lastRoll = rx; lastPitch = ry; lastYaw = rz; lastThr = thr;
             nativeSetAxes(rx, ry, rz, thr);
@@ -1202,6 +1252,13 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // If exit dialog is showing, let it handle the key events
+        if (exitDialog != null && exitDialog.isShowing()) {
+            android.util.Log.d("ELRS", "Exit dialog active - delegating key event: " + keyCode);
+            return true; // Consume the event
+        }
+
+        
         // Check if this is a gamepad key or 8BitDo controller
         boolean isGamepadSource = ((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
                                  ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0);
@@ -1220,6 +1277,33 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             }
         }
         
+        // Handle safe exit sequence - B + X combination
+        if (keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+            xButtonPressed = true;
+            checkSafeExitSequence();
+            android.util.Log.d("ELRS", "X button pressed - safe exit sequence checking");
+        }
+        
+        if (keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+            bButtonPressed = true;
+            checkSafeExitSequence();
+            android.util.Log.d("ELRS", "B button pressed - safe exit sequence checking");
+        }
+        
+        // Block system back button
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            android.util.Log.d("ELRS", "System back blocked - use B + X to exit safely");
+            if (tvGamepadButtons != null) {
+                tvGamepadButtons.post(() -> tvGamepadButtons.setText("EXIT BLOCKED - Use B + X"));
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (tvGamepadButtons != null) {
+                        tvGamepadButtons.setText("Buttons: ---");
+                    }
+                }, 2000);
+            }
+            return true; // Consume the event to block exit
+        }
+
         if (isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) {
             // Controller is active - update status
             if (!controllerConnected) {
@@ -1242,18 +1326,28 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 });
             }
             
-            // Update debug display with button press
-            if (tvGamepadButtons != null) {
+            // Update debug display with button press (including B and X for exit sequence)
+            if (tvGamepadButtons != null && keyCode != KeyEvent.KEYCODE_BACK) {
                 String buttonName = KeyEvent.keyCodeToString(keyCode);
                 final String buttonText = "Button: " + buttonName + " DOWN";
-                tvGamepadButtons.post(() -> tvGamepadButtons.setText(buttonText));
                 
-                // Clear button display after a short delay
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    if (tvGamepadButtons != null) {
-                        tvGamepadButtons.setText("Buttons: ---");
-                    }
-                }, 500);
+                // Show exit sequence status if both buttons pressed
+                if ((keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) && xButtonPressed) {
+                    tvGamepadButtons.post(() -> tvGamepadButtons.setText("EXIT SEQUENCE: B + X"));
+                } else if ((keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) && bButtonPressed) {
+                    tvGamepadButtons.post(() -> tvGamepadButtons.setText("EXIT SEQUENCE: B + X"));
+                } else {
+                    tvGamepadButtons.post(() -> tvGamepadButtons.setText(buttonText));
+                }
+                
+                // Clear button display after a short delay (unless exit sequence is active)
+                if (safeExitStartTime == 0) {
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        if (tvGamepadButtons != null && safeExitStartTime == 0) {
+                            tvGamepadButtons.setText("Buttons: ---");
+                        }
+                    }, 500);
+                }
             }
         }
         return super.onKeyDown(keyCode, event);
@@ -1261,6 +1355,13 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        // If exit dialog is showing, let it handle the key events
+        if (exitDialog != null && exitDialog.isShowing()) {
+            android.util.Log.d("ELRS", "Exit dialog active - delegating key up event: " + keyCode);
+            return true; // Consume the event
+        }
+
+        
         // Check if this is a gamepad key or 8BitDo controller
         boolean isGamepadSource = ((event.getSource() & InputDevice.SOURCE_GAMEPAD) != 0) ||
                                  ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != 0);
@@ -1279,10 +1380,23 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             }
         }
         
+        // Handle safe exit sequence release
+        if (keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+            xButtonPressed = false;
+            resetSafeExitSequence();
+            android.util.Log.d("ELRS", "X button released - safe exit sequence deactivated");
+        }
+        
+        if (keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+            bButtonPressed = false;
+            resetSafeExitSequence();
+            android.util.Log.d("ELRS", "B button released - safe exit sequence deactivated");
+        }
+
         if (isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) {
             
-            // Update debug display with button release
-            if (tvGamepadButtons != null) {
+            // Update debug display with button release (except for blocked keys)
+            if (tvGamepadButtons != null && keyCode != KeyEvent.KEYCODE_B && keyCode != KeyEvent.KEYCODE_BUTTON_B && keyCode != KeyEvent.KEYCODE_BACK) {
                 String buttonName = KeyEvent.keyCodeToString(keyCode);
                 final String buttonText = "Button: " + buttonName + " UP";
                 tvGamepadButtons.post(() -> tvGamepadButtons.setText(buttonText));
@@ -1309,8 +1423,219 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         return v;
     }
 
+
+    
+    // Override back button to prevent accidental exits
+    @Override
+    public void onBackPressed() {
+        android.util.Log.d("ELRS", "Back button blocked - use B + X to exit safely");
+        if (tvGamepadButtons != null) {
+            tvGamepadButtons.post(() -> tvGamepadButtons.setText("EXIT BLOCKED - Use B + X"));
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (tvGamepadButtons != null) {
+                    tvGamepadButtons.setText("Buttons: ---");
+                }
+            }, 2000);
+        }
+        // Don't call super.onBackPressed() to block the exit
+    }
+    
+    private void checkSafeExitSequence() {
+        if (xButtonPressed && bButtonPressed) {
+            if (safeExitStartTime == 0) {
+                safeExitStartTime = System.currentTimeMillis();
+                android.util.Log.d("ELRS", "Safe exit sequence started - hold for 3 seconds");
+                
+                // Show danger dialog with countdown
+                showExitCountdownDialog();
+            }
+        }
+    }
+    
+    private void showExitCountdownDialog() {
+        runOnUiThread(() -> {
+            if (exitDialog != null && exitDialog.isShowing()) {
+                exitDialog.dismiss();
+            }
+            
+            // Create custom view with red background and blinking border
+            android.widget.LinearLayout customLayout = new android.widget.LinearLayout(this);
+            customLayout.setOrientation(android.widget.LinearLayout.VERTICAL);
+            customLayout.setPadding(40, 40, 40, 40);
+            customLayout.setBackgroundColor(0xFF330000); // Dark red background
+            
+            // Make layout focusable to capture input events
+            customLayout.setFocusable(true);
+            customLayout.setFocusableInTouchMode(true);
+            
+            // Danger icon
+            android.widget.TextView iconView = new android.widget.TextView(this);
+            iconView.setText("⚠️ DANGER ⚠️");
+            iconView.setTextSize(24);
+            iconView.setTextColor(0xFFFF0000); // Bright red
+            iconView.setGravity(android.view.Gravity.CENTER);
+            iconView.setPadding(0, 0, 0, 20);
+            customLayout.addView(iconView);
+            
+            // Warning message
+            android.widget.TextView messageView = new android.widget.TextView(this);
+            messageView.setText("FLIGHT CONTROLLER EXIT\nThis may cause drone crash!\nHold B + X to continue");
+            messageView.setTextSize(16);
+            messageView.setTextColor(0xFFFFAAAA);
+            messageView.setGravity(android.view.Gravity.CENTER);
+            messageView.setPadding(0, 0, 0, 20);
+            customLayout.addView(messageView);
+            
+            // Countdown display
+            android.widget.TextView countdownView = new android.widget.TextView(this);
+            countdownView.setText("3");
+            countdownView.setTextSize(48);
+            countdownView.setTextColor(0xFFFF0000); // Bright red countdown
+            countdownView.setGravity(android.view.Gravity.CENTER);
+            countdownView.setTypeface(null, android.graphics.Typeface.BOLD);
+            customLayout.addView(countdownView);
+            
+            // Create dialog with special flags to prevent dismissal
+            android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+            builder.setView(customLayout);
+            builder.setCancelable(false); // Prevent back button dismissal
+            builder.setPositiveButton("CANCEL", (dialog, id) -> {
+                resetSafeExitSequence();
+                dialog.dismiss();
+            });
+            
+            exitDialog = builder.create();
+            
+            // Set dialog to be persistent and immune to external events
+            exitDialog.setCancelable(false);
+            exitDialog.setCanceledOnTouchOutside(false);
+            
+            // Override key events to prevent controller input from dismissing dialog
+            exitDialog.setOnKeyListener((dialog, keyCode, event) -> {
+                android.util.Log.d("ELRS", "Dialog received key event: " + keyCode + " action: " + event.getAction());
+                
+                // Handle B and X button events within dialog context
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+                        bButtonPressed = true;
+                        android.util.Log.d("ELRS", "Dialog: B button pressed");
+                    } else if (keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+                        xButtonPressed = true;
+                        android.util.Log.d("ELRS", "Dialog: X button pressed");
+                    }
+                } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                    if (keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+                        bButtonPressed = false;
+                        android.util.Log.d("ELRS", "Dialog: B button released - cancelling exit");
+                        resetSafeExitSequence();
+                        return true;
+                    } else if (keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+                        xButtonPressed = false;
+                        android.util.Log.d("ELRS", "Dialog: X button released - cancelling exit");
+                        resetSafeExitSequence();
+                        return true;
+                    }
+                }
+                
+                // Consume all key events to prevent them from reaching the main activity
+                return true;
+            });
+            
+            exitDialog.show();
+            
+            // Configure window flags to make dialog persistent
+            android.view.Window window = exitDialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawableResource(android.R.color.transparent);
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+            }
+            
+            // Request focus for the custom layout to capture input
+            customLayout.requestFocus();
+            
+            // Start countdown with blinking effect
+            Handler handler = new Handler(Looper.getMainLooper());
+            Runnable exitCountdown = new Runnable() {
+                int countdown = 3;
+                boolean blink = false;
+                
+                @Override
+                public void run() {
+                    if (xButtonPressed && bButtonPressed && safeExitStartTime > 0 && exitDialog != null && exitDialog.isShowing()) {
+                        if (countdown > 0) {
+                            // Update countdown text in red
+                            countdownView.setText(String.valueOf(countdown));
+                            countdownView.setTextColor(blink ? 0xFFFF0000 : 0xFFFF6666); // Blinking red
+                            
+                            // Update gamepad display
+                            if (tvGamepadButtons != null) {
+                                tvGamepadButtons.post(() -> tvGamepadButtons.setText("⚠️ DANGER EXIT: " + countdown + "s"));
+                            }
+                            
+                            blink = !blink;
+                            countdown--;
+                            handler.postDelayed(this, 500); // Blink every 500ms, countdown every 1000ms
+                        } else {
+                            // Exit approved
+                            android.util.Log.d("ELRS", "Safe exit sequence completed - exiting application");
+                            countdownView.setText("EXITING!");
+                            countdownView.setTextColor(0xFFFF0000);
+                            
+                            if (tvGamepadButtons != null) {
+                                tvGamepadButtons.post(() -> tvGamepadButtons.setText("⚠️ EXITING SAFELY..."));
+                            }
+                            
+                            // Give a moment for the message to show
+                            handler.postDelayed(() -> {
+                                if (exitDialog != null && exitDialog.isShowing()) {
+                                    exitDialog.dismiss();
+                                }
+                                finish();
+                                System.exit(0);
+                            }, 1000);
+                        }
+                    } else {
+                        if (exitDialog != null && exitDialog.isShowing()) {
+                            exitDialog.dismiss();
+                        }
+                        resetSafeExitSequence();
+                    }
+                }
+            };
+            handler.post(exitCountdown);
+        });
+    }
+    
+    private void resetSafeExitSequence() {
+        if (safeExitStartTime > 0) {
+            android.util.Log.d("ELRS", "Safe exit sequence cancelled");
+            safeExitStartTime = 0;
+            
+            // Dismiss dialog if showing
+            if (exitDialog != null && exitDialog.isShowing()) {
+                exitDialog.dismiss();
+            }
+            
+            if (tvGamepadButtons != null) {
+                tvGamepadButtons.post(() -> tvGamepadButtons.setText("EXIT CANCELLED"));
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (tvGamepadButtons != null) {
+                        tvGamepadButtons.setText("Buttons: ---");
+                    }
+                }, 1000);
+            }
+        }
+    }
+
     @Override protected void onDestroy() {
         super.onDestroy();
+        
+        // Clean up exit dialog
+        if (exitDialog != null && exitDialog.isShowing()) {
+            exitDialog.dismiss();
+        }
+        
         stopDeviceMonitor();
         try { unregisterReceiver(permRx); } catch (Exception ignored) {}
         input.unregisterInputDeviceListener(this);
@@ -1378,5 +1703,21 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private void checkControllerStatus() {
         boolean controller = detectController(true);
         updateControllerStatus(controller);
+    }
+    
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        // Prevent any input events from interfering with the exit dialog
+        if (exitDialog != null && exitDialog.isShowing()) {
+            // Check if it's B or X button press/release
+            if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_B || 
+                event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_X) {
+                // Let the dialog handle these specific buttons
+                return exitDialog.dispatchKeyEvent(event);
+            }
+            // Block all other input events
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 }
