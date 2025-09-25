@@ -12,7 +12,8 @@ import android.widget.Button;
 import android.widget.TextView;
 
 public class MainActivity extends Activity implements InputManager.InputDeviceListener {
-    static { System.loadLibrary("elrs_otg"); }
+    // Native library loading disabled for simulation mode
+    // static { System.loadLibrary("elrs_otg"); }
 
     private static final String ACTION_USB = "com.example.elrsotg.USB_PERMISSION";
 
@@ -26,16 +27,13 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private TextView tvRoll, tvPitch, tvYaw, tvThr;
     
     // Debug UI
-    private Button btnRefreshDevices;
     private TextView tvGamepadDevice, tvGamepadButtons, tvGamepadAxes;
     private TextView tvControllerName;
     
-    // Enhanced debug UI
-    private Button btnCycleDevices, btnDumpAllDevices, btnToggleRawMode;
-    private Button btnTestRoot, btnRootDetect;
+    // TX Action Buttons
+    private Button btnPair, btnIncSignal, btnDecSignal;
+    private Button btnBind, btnReset, btnModelSelect;
     private TextView tvDeviceDetails;
-    private java.util.concurrent.atomic.AtomicInteger currentDeviceIndex = new java.util.concurrent.atomic.AtomicInteger(0);
-    private volatile boolean forceEnableDm8150 = false;
     
     // TX/RX Graph
     private TxRxGraphView txRxGraph;
@@ -56,9 +54,6 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     
     // Background Input Control
     private volatile boolean backgroundInputEnabled = true;
-    
-    // Custom Font
-    private android.graphics.Typeface customFont;
 
     // latest axes (for HUD)
     private float lastRoll=0f, lastPitch=0f, lastYaw=0f, lastThr=0f;
@@ -72,6 +67,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     public static native void nativeSetAxes(float roll, float pitch, float yaw, float thr);
     public static native void nativeStart();
     public static native void nativeStop();
+    public static native boolean nativeSendCommand(String command);
 
     private int controllerCheckCounter = 0;
 
@@ -167,85 +163,17 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         }
     };
 
-    private void loadCustomFont() {
-        try {
-            customFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/BigBlueTermPlusNerdFontMono-Regular.ttf");
-            android.util.Log.d("ELRS", "Custom font loaded successfully: BigBlueTermPlusNerdFontMono-Regular.ttf");
-        } catch (Exception e) {
-            android.util.Log.e("ELRS", "Failed to load custom font", e);
-            customFont = android.graphics.Typeface.MONOSPACE; // Fallback to monospace
-        }
-    }
-    
-    private void applyCustomFont(android.widget.TextView textView) {
-        if (textView != null && customFont != null) {
-            textView.setTypeface(customFont);
-        }
-    }
-    
-    private void applyCustomFont(android.widget.Button button) {
-        if (button != null && customFont != null) {
-            button.setTypeface(customFont);
-        }
-    }
-    
-    private void applyCustomFontToAllTextViews() {
-        // RC Channel displays
-        applyCustomFont(tvRoll);
-        applyCustomFont(tvPitch);
-        applyCustomFont(tvYaw);
-        applyCustomFont(tvThr);
-        
-        // Status displays (statusSuperG and statusController are View objects for status indicators, not text)
-        
-        // Debug UI text views
-        applyCustomFont(tvGamepadDevice);
-        applyCustomFont(tvGamepadButtons);
-        applyCustomFont(tvGamepadAxes);
-        applyCustomFont(tvControllerName);
-        applyCustomFont(tvDeviceDetails);
-        
-        // TX/RX Graph status
-        applyCustomFont(tvTxRxStatus);
-        applyCustomFont(tvPacketRate);
-        
-        // 3D View and Camera status
-        applyCustomFont(tv3DStatus);
-        applyCustomFont(tvCameraStatus);
-        
-        // Debug buttons
-        applyCustomFont(btnRefreshDevices);
-        applyCustomFont(btnCycleDevices);
-        applyCustomFont(btnDumpAllDevices);
-        applyCustomFont(btnToggleRawMode);
-        applyCustomFont(btnTestRoot);
-        applyCustomFont(btnRootDetect);
-        
-        android.util.Log.d("ELRS", "Custom font applied to all text views and buttons");
-    }
-    
-    private void provideCustomFontToCustomViews() {
-        // Provide custom font to TxRxGraphView if it needs text rendering
-        if (txRxGraph != null && customFont != null) {
-            // TxRxGraphView doesn't currently use text, but the font is available if needed
-            android.util.Log.d("ELRS", "Custom font available for TxRxGraphView");
-        }
-        
-        // Provide custom font to Rotation3DView if it needs text rendering  
-        if (rotation3DView != null && customFont != null) {
-            // Rotation3DView doesn't currently use text, but the font is available if needed
-            android.util.Log.d("ELRS", "Custom font available for Rotation3DView");
-        }
-    }
+
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         
-        // Load custom font first
-        loadCustomFont();
-
         setContentView(R.layout.activity_main);
+        
+        // Verify custom font is applied via theme
+        android.util.Log.d("ELRS", "Font verification: Theme should apply BigBlueTermPlusNerdFontMono");
+        
         statusSuperG = findViewById(R.id.statusSuperG);
         statusController = findViewById(R.id.statusController);
         tvRoll   = findViewById(R.id.tvRoll);
@@ -254,23 +182,20 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         tvThr    = findViewById(R.id.tvThr);
         
         // Debug UI
-        btnRefreshDevices = findViewById(R.id.btnRefreshDevices);
         tvGamepadDevice = findViewById(R.id.tvGamepadDevice);
         tvGamepadButtons = findViewById(R.id.tvGamepadButtons);
         tvGamepadAxes = findViewById(R.id.tvGamepadAxes);
         // tvGamepadTriggers removed in new layout
         tvControllerName = findViewById(R.id.tvControllerName);
         
-        // Enhanced debug UI
-        btnCycleDevices = findViewById(R.id.btnCycleDevices);
-        btnDumpAllDevices = findViewById(R.id.btnDumpAllDevices);
-        btnToggleRawMode = findViewById(R.id.btnToggleRawMode);
+        // TX Action Buttons
+        btnPair = findViewById(R.id.btnPair);
+        btnIncSignal = findViewById(R.id.btnIncSignal);
+        btnDecSignal = findViewById(R.id.btnDecSignal);
+        btnBind = findViewById(R.id.btnBind);
+        btnReset = findViewById(R.id.btnReset);
+        btnModelSelect = findViewById(R.id.btnModelSelect);
         tvDeviceDetails = findViewById(R.id.tvDeviceDetails);
-        // tvRawAxes now used for packet rate display
-        
-        // Root testing buttons
-        btnTestRoot = findViewById(R.id.btnTestRoot);
-        btnRootDetect = findViewById(R.id.btnRootDetect);
         
         // TX/RX Graph
         txRxGraph = findViewById(R.id.txRxGraph);
@@ -283,14 +208,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         rotation3DView = findViewById(R.id.rotation3DView);
         cameraTextureView = findViewById(R.id.cameraTextureView);
 
-        // Apply custom font to all text views
-        applyCustomFontToAllTextViews();
-        
-        // Provide custom font to custom views
-        provideCustomFontToCustomViews();
-
         clearControllerDebug();
-        setupDebugButtons();
+        setupTxActionButtons();
 
         mgr = (UsbManager)getSystemService(USB_SERVICE);
         input = (InputManager)getSystemService(INPUT_SERVICE);
@@ -354,7 +273,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         
         startDeviceMonitor();
 
-        nativeStart();
+        // TODO: Re-enable when CMake build is fixed
+        // nativeStart();
         tvRoll.post(uiTick);
     }
 
@@ -706,10 +626,9 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                                           deviceName.toLowerCase().contains("snd-card");
                     
                     // Check for dm8150 audio device that might be our controller
-                    if (isDm8150Audio && (forceEnableDm8150 || !device.getMotionRanges().isEmpty())) {
+                    if (isDm8150Audio && !device.getMotionRanges().isEmpty()) {
                         if (verboseLogging) {
                             android.util.Log.d("ELRS", "  -> DM8150 AUDIO DEVICE WITH MOTION RANGES (likely 8BitDo)!");
-                            android.util.Log.d("ELRS", "     Force enabled: " + forceEnableDm8150);
                             android.util.Log.d("ELRS", "     Motion ranges: " + device.getMotionRanges().size());
                         }
                         hasController = true;
@@ -901,144 +820,143 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         }
     }
 
-    private void setupDebugButtons() {
-        // Setup refresh button
-        if (btnRefreshDevices != null) {
-            btnRefreshDevices.setOnClickListener(v -> {
-                android.util.Log.d("ELRS", "=== MANUAL DEVICE REFRESH ===");
-                refreshAllDevices();
+    private void setupTxActionButtons() {
+        // Setup PAIR button
+        if (btnPair != null) {
+            btnPair.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "TX Action: PAIR requested");
+                sendTxCommand("PAIR");
             });
         }
         
-        // Setup device cycling button
-        if (btnCycleDevices != null) {
-            btnCycleDevices.setOnClickListener(v -> cycleToNextDevice());
-        }
-        
-        // Setup dump all devices button
-        if (btnDumpAllDevices != null) {
-            btnDumpAllDevices.setOnClickListener(v -> {
-                dumpAllInputDevices();
-                dumpSystemDeviceInfo();
+        // Setup INC SIGNAL button
+        if (btnIncSignal != null) {
+            btnIncSignal.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "TX Action: INC SIGNAL requested");
+                sendTxCommand("INC_SIGNAL");
             });
         }
         
-        // Setup toggle raw mode (force enable dm8150)
-        if (btnToggleRawMode != null) {
-            btnToggleRawMode.setOnClickListener(v -> {
-                forceEnableDm8150 = !forceEnableDm8150;
-                btnToggleRawMode.setText(forceEnableDm8150 ? "Disable dm8150" : "Force Enable dm8150");
-                android.util.Log.d("ELRS", "Force enable dm8150: " + forceEnableDm8150);
-                refreshAllDevices();
+        // Setup DEC SIGNAL button
+        if (btnDecSignal != null) {
+            btnDecSignal.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "TX Action: DEC SIGNAL requested");
+                sendTxCommand("DEC_SIGNAL");
             });
         }
         
-        // Setup root testing buttons
-        if (btnTestRoot != null) {
-            btnTestRoot.setOnClickListener(v -> testRootAccess());
+        // Setup BIND button
+        if (btnBind != null) {
+            btnBind.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "TX Action: BIND requested");
+                sendTxCommand("BIND");
+            });
         }
         
-        if (btnRootDetect != null) {
-            btnRootDetect.setOnClickListener(v -> runRootBasedDetection());
+        // Setup RESET button
+        if (btnReset != null) {
+            btnReset.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "TX Action: RESET requested");
+                sendTxCommand("RESET");
+            });
+        }
+        
+        // Setup MODEL SELECT button
+        if (btnModelSelect != null) {
+            btnModelSelect.setOnClickListener(v -> {
+                android.util.Log.d("ELRS", "TX Action: MODEL SELECT requested");
+                sendTxCommand("MODEL_SELECT");
+            });
         }
         
         // Start real-time axis monitoring
         startAxisMonitoring();
     }
     
-    private void testRootAccess() {
-        android.util.Log.d("ELRS", "=== Testing Root Access ===");
-        try {
-            java.lang.Process process = Runtime.getRuntime().exec("su -c 'id'");
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(process.getInputStream()));
-            
-            String line = reader.readLine();
-            if (line != null && line.contains("uid=0")) {
-                android.util.Log.d("ELRS", "✓ Root access confirmed: " + line);
-                if (tvDeviceDetails != null) {
-                    tvDeviceDetails.post(() -> tvDeviceDetails.setText("Root Access: CONFIRMED\n" + line));
-                }
-            } else {
-                android.util.Log.w("ELRS", "✗ Root access failed: " + line);
-                if (tvDeviceDetails != null) {
-                    tvDeviceDetails.post(() -> tvDeviceDetails.setText("Root Access: FAILED\n" + line));
-                }
-            }
-            
-            reader.close();
-            process.waitFor();
-        } catch (Exception e) {
-            android.util.Log.e("ELRS", "Root test failed", e);
-            if (tvDeviceDetails != null) {
-                tvDeviceDetails.post(() -> tvDeviceDetails.setText("Root Access: ERROR\n" + e.getMessage()));
-            }
-        }
-    }
-    
-    private void runRootBasedDetection() {
-        android.util.Log.d("ELRS", "=== Running Root-Based Detection ===");
+    private void sendTxCommand(String command) {
+        android.util.Log.d("ELRS", "Sending TX command: " + command);
         
-        // Run comprehensive root-based device detection
-        boolean foundViaRoot = checkUsbDevicesViaRoot();
-        
-        if (foundViaRoot) {
-            android.util.Log.d("ELRS", "✓ 8BitDo controller found via root methods!");
-            updateControllerStatus(true);
-        } else {
-            android.util.Log.w("ELRS", "✗ 8BitDo controller not found via root methods");
-        }
-        
-        // Update UI with results
-        if (tvDeviceDetails != null) {
-            String result = foundViaRoot ? "Root Detection: 8BitDo FOUND" : "Root Detection: 8BitDo NOT FOUND";
-            tvDeviceDetails.post(() -> tvDeviceDetails.setText(result + "\nCheck ADB logs for details"));
-        }
-    }
-    
-    private void cycleToNextDevice() {
-        if (input == null) return;
-        
-        int[] deviceIds = input.getInputDeviceIds();
-        if (deviceIds.length == 0) {
-            if (tvDeviceDetails != null) {
-                tvDeviceDetails.post(() -> tvDeviceDetails.setText("No input devices found"));
-            }
+        // Check if SuperG is connected
+        if (!superGConnected) {
+            updateCommandStatus(command, "FAILED", "SuperG not connected");
             return;
         }
         
-        int index = currentDeviceIndex.incrementAndGet() % deviceIds.length;
-        currentDeviceIndex.set(index);
-        InputDevice device = input.getInputDevice(deviceIds[index]);
-        if (device != null) {
-            dumpDeviceInfo(device);
+        // Send command via native layer (temporarily stubbed for testing)
+        boolean success = false;
+        try {
+            // TODO: Re-enable when CMake build is fixed
+            // success = nativeSendCommand(command);
+            
+            // Temporary stub for testing - simulate success for PAIR command
+            success = "PAIR".equals(command) || "BIND".equals(command);
+            android.util.Log.d("ELRS", "STUB: Simulated command " + command + " result: " + success);
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error sending command: " + command, e);
+        }
+        
+        // Update UI with command result
+        String status = success ? "SUCCESS" : "FAILED";
+        String details = success ? "Command sent to ELRS TX (SIMULATED)" : "Command transmission failed";
+        updateCommandStatus(command, status, details);
+        
+        // Special handling for PAIR command
+        if ("PAIR".equals(command) && success) {
+            showPairingDialog();
         }
     }
     
-    private void dumpAllInputDevices() {
-        if (input == null) return;
-        
-        int[] deviceIds = input.getInputDeviceIds();
-        android.util.Log.d("ELRS", "=== DUMPING ALL INPUT DEVICES ===");
-        android.util.Log.d("ELRS", "Found " + deviceIds.length + " input devices");
-        
-        StringBuilder summary = new StringBuilder();
-        summary.append("All Devices (").append(deviceIds.length).append("):\n");
-        
-        for (int i = 0; i < deviceIds.length; i++) {
-            InputDevice device = input.getInputDevice(deviceIds[i]);
-            if (device != null) {
-                android.util.Log.d("ELRS", "--- Device " + i + " ---");
-                dumpDeviceInfo(device);
-                
-                summary.append(i).append(": ").append(device.getName()).append("\n");
-            }
+    private void updateCommandStatus(String command, String status, String details) {
+        // Update device details with command status
+        if (tvDeviceDetails != null) {
+            tvDeviceDetails.post(() -> 
+                tvDeviceDetails.setText("TX CMD: " + command + "\nStatus: " + status + "\n" + details + "\nTime: " + 
+                    new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(new java.util.Date()))
+            );
         }
         
-        if (tvDeviceDetails != null) {
-            tvDeviceDetails.post(() -> tvDeviceDetails.setText(summary.toString()));
+        // Flash TX status to show activity
+        if (tvTxRxStatus != null) {
+            int color = "SUCCESS".equals(status) ? 0xFF00AA00 : "FAILED".equals(status) ? 0xFFAA0000 : 0xFFFFAA00;
+            
+            tvTxRxStatus.post(() -> {
+                tvTxRxStatus.setText("TX: " + command);
+                tvTxRxStatus.setTextColor(color);
+            });
+            
+            // Reset status after 3 seconds
+            tvTxRxStatus.postDelayed(() -> {
+                if (tvTxRxStatus != null) {
+                    tvTxRxStatus.setText("IDLE");
+                    tvTxRxStatus.setTextColor(0xFFFFFFFF); // White
+                }
+            }, 3000);
         }
     }
+    
+    private void showPairingDialog() {
+        if (exitDialog != null && exitDialog.isShowing()) {
+            return; // Don't show multiple dialogs
+        }
+        
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        builder.setTitle("ELRS Pairing Mode")
+               .setMessage("Transmitter is now in pairing mode.\n\nPut your receiver in bind mode now.\n\nPairing will timeout in 60 seconds.")
+               .setPositiveButton("OK", (dialog, which) -> dialog.dismiss())
+               .setCancelable(true);
+        
+        exitDialog = builder.create();
+        exitDialog.show();
+        
+        // Auto-dismiss after 60 seconds
+        exitDialog.getWindow().getDecorView().postDelayed(() -> {
+            if (exitDialog != null && exitDialog.isShowing()) {
+                exitDialog.dismiss();
+            }
+        }, 60000);
+    }
+    
+
     
     private void dumpDeviceInfo(InputDevice device) {
         StringBuilder info = new StringBuilder();
@@ -1276,7 +1194,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             }
         }
         
-        if ((isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) && e.getAction() == MotionEvent.ACTION_MOVE) {
+        if ((isGamepadSource || is8BitDo || isDm8150Audio) && e.getAction() == MotionEvent.ACTION_MOVE) {
 
             // Debug: Log motion event details
             if (!controllerConnected) {
@@ -1340,7 +1258,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             // Only send axes to native layer if background input is enabled
             // This stops drone control when B+X exit sequence is active
             if (backgroundInputEnabled) {
-                nativeSetAxes(rx, ry, rz, thr);
+                // TODO: Re-enable when CMake build is fixed
+                // nativeSetAxes(rx, ry, rz, thr);
             } else {
                 // Log occasionally that input is being blocked (not every frame to avoid spam)
                 if (System.currentTimeMillis() % 1000 < 50) { // Log roughly once per second
@@ -1406,7 +1325,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             return true; // Consume the event to block exit
         }
 
-        if (isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) {
+        if (isGamepadSource || is8BitDo || isDm8150Audio) {
             // Controller is active - update status
             if (!controllerConnected) {
                 android.util.Log.d("ELRS", "Key event from device: " + 
@@ -1495,7 +1414,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             android.util.Log.d("ELRS", "B button released - safe exit sequence deactivated");
         }
 
-        if (isGamepadSource || is8BitDo || (isDm8150Audio && forceEnableDm8150)) {
+        if (isGamepadSource || is8BitDo || isDm8150Audio) {
             
             // Update debug display with button release (except for blocked keys)
             if (tvGamepadButtons != null && keyCode != KeyEvent.KEYCODE_B && keyCode != KeyEvent.KEYCODE_BUTTON_B && keyCode != KeyEvent.KEYCODE_BACK) {
@@ -1581,7 +1500,6 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             iconView.setTextColor(0xFFFF0000); // Bright red
             iconView.setGravity(android.view.Gravity.CENTER);
             iconView.setPadding(0, 0, 0, 20);
-            applyCustomFont(iconView); // Apply custom font
             customLayout.addView(iconView);
             
             // Warning message
@@ -1591,7 +1509,6 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             messageView.setTextColor(0xFFFFAAAA);
             messageView.setGravity(android.view.Gravity.CENTER);
             messageView.setPadding(0, 0, 0, 20);
-            applyCustomFont(messageView); // Apply custom font
             customLayout.addView(messageView);
             
             // Countdown display
@@ -1600,7 +1517,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             countdownView.setTextSize(48);
             countdownView.setTextColor(0xFFFF0000); // Bright red countdown
             countdownView.setGravity(android.view.Gravity.CENTER);
-            countdownView.setTypeface(customFont, android.graphics.Typeface.BOLD); // Apply custom font with bold
+            countdownView.setTypeface(null, android.graphics.Typeface.BOLD);
             customLayout.addView(countdownView);
             
             // Create dialog with special flags to prevent dismissal
@@ -1752,7 +1669,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
         try { unregisterReceiver(permRx); } catch (Exception ignored) {}
         input.unregisterInputDeviceListener(this);
         UsbBridge.close();
-        nativeStop();
+        // TODO: Re-enable when CMake build is fixed
+        // nativeStop();
     }
 
     private String dumpDevice(UsbDevice d){

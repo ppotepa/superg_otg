@@ -128,10 +128,10 @@
                 android:layout_marginBottom="4dp">
                 
                 <Button
-                    android:id="@+id/btnRefreshDevices"
-                    android:text="REFRESH"
+                    android:id="@+id/btnPair"
+                    android:text="PAIR"
                     android:textColor="#FFFFFF"
-                    android:backgroundTint="#555555"
+                    android:backgroundTint="#FF6600"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:layout_width="0dp"
@@ -140,10 +140,10 @@
                     android:layout_marginEnd="2dp"/>
                     
                 <Button
-                    android:id="@+id/btnCycleDevices"
-                    android:text="NEXT DEV"
+                    android:id="@+id/btnIncSignal"
+                    android:text="INC SIGNAL"
                     android:textColor="#FFFFFF"
-                    android:backgroundTint="#555555"
+                    android:backgroundTint="#00AA00"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:layout_width="0dp"
@@ -152,10 +152,10 @@
                     android:layout_marginEnd="2dp"/>
                     
                 <Button
-                    android:id="@+id/btnDumpAllDevices"
-                    android:text="DUMP ALL"
+                    android:id="@+id/btnDecSignal"
+                    android:text="DEC SIGNAL"
                     android:textColor="#FFFFFF"
-                    android:backgroundTint="#555555"
+                    android:backgroundTint="#AA0000"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:layout_width="0dp"
@@ -170,10 +170,10 @@
                 android:layout_marginBottom="4dp">
                 
                 <Button
-                    android:id="@+id/btnToggleRawMode"
-                    android:text="FORCE dm8150"
+                    android:id="@+id/btnBind"
+                    android:text="BIND"
                     android:textColor="#FFFFFF"
-                    android:backgroundTint="#666600"
+                    android:backgroundTint="#0066FF"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:layout_width="0dp"
@@ -182,22 +182,22 @@
                     android:layout_marginEnd="2dp"/>
                     
                 <Button
-                    android:id="@+id/btnTestRoot"
-                    android:text="TEST ROOT"
+                    android:id="@+id/btnReset"
+                    android:text="RESET"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#880000"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="2dp"/>
+                    
+                <Button
+                    android:id="@+id/btnModelSelect"
+                    android:text="MODEL"
                     android:textColor="#FFFFFF"
                     android:backgroundTint="#880088"
-                    android:textSize="9sp"
-                    android:fontFamily="monospace"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="32dp"
-                    android:layout_marginEnd="2dp"/>
-                    
-                <Button
-                    android:id="@+id/btnRootDetect"
-                    android:text="ROOT DETECT"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#008800"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:layout_width="0dp"
@@ -208,7 +208,7 @@
             <!-- Hint Text -->
             <TextView
                 android:id="@+id/tvHint"
-                android:text="Move sticks/triggers. SuperG via OTG."
+                android:text="TX Actions: PAIR/BIND/SIGNAL. Move sticks/triggers."
                 android:textColor="#888888"
                 android:textSize="10sp"
                 android:fontFamily="monospace"

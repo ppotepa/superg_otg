@@ -4,6 +4,7 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="true"/>
 
     <application
+        android:name=".ElrsOtgApplication"
         android:allowBackup="false"
         android:label="ELRS OTG Native"
         android:theme="@style/AppTheme">

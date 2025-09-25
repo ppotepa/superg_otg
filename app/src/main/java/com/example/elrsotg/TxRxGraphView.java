@@ -14,6 +14,7 @@ public class TxRxGraphView extends View {
     private Paint rxPaint;
     private Paint gridPaint;
     private Paint backgroundPaint;
+    private Paint textPaint;
     
     private List<Float> txData;
     private List<Float> rxData;
@@ -64,6 +65,15 @@ public class TxRxGraphView extends View {
         backgroundPaint.setColor(0xFF0A0A0A);
         backgroundPaint.setStyle(Paint.Style.FILL);
 
+        // Text paint for labels
+        textPaint = new Paint();
+        textPaint.setColor(0xFFFFFFFF);
+        textPaint.setTextSize(24f);
+        textPaint.setAntiAlias(true);
+        
+        // Use default font which is now set to our custom font at application level
+        textPaint.setTypeface(android.graphics.Typeface.DEFAULT);
+
         // Initialize data lists
         txData = new ArrayList<>();
         rxData = new ArrayList<>();
@@ -91,6 +101,24 @@ public class TxRxGraphView extends View {
         // Draw TX and RX lines
         drawDataLine(canvas, txData, txPaint, width, height);
         drawDataLine(canvas, rxData, rxPaint, width, height);
+        
+        // Draw labels
+        drawLabels(canvas, width, height);
+    }
+    
+    private void drawLabels(Canvas canvas, int width, int height) {
+        // TX label (top-left, green)
+        textPaint.setColor(0xFF00FF00);
+        canvas.drawText("TX", 10, 30, textPaint);
+        
+        // RX label (bottom-left, blue)
+        textPaint.setColor(0xFF0088FF);
+        canvas.drawText("RX", 10, height - 10, textPaint);
+        
+        // Rate labels
+        textPaint.setColor(0xFFFFFFFF);
+        String rateText = String.format("%.0fHz", Math.max(txRate, rxRate));
+        canvas.drawText(rateText, width - 80, 30, textPaint);
     }
 
     private void drawGrid(Canvas canvas, int width, int height) {

@@ -1,6 +1,25 @@
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <style name="AppTheme" parent="android:Theme.DeviceDefault.NoActionBar.Fullscreen">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
+        <item name="android:fontFamily">@font/terminal_font</item>
+        <item name="android:typeface">monospace</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:buttonStyle">@style/ButtonWithCustomFont</item>
+        <item name="android:dialogTheme">@style/AppDialogTheme</item>
+        <item name="android:alertDialogTheme">@style/AppAlertDialogTheme</item>
+    </style>
+
+    <style name="ButtonWithCustomFont" parent="android:Widget.Button">
+        <item name="android:fontFamily">@font/terminal_font</item>
+    </style>
+
+    <style name="AppDialogTheme" parent="android:Theme.DeviceDefault.Dialog">
+        <item name="android:fontFamily">@font/terminal_font</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+
+    <style name="AppAlertDialogTheme" parent="android:Theme.DeviceDefault.Dialog.Alert">
+        <item name="android:fontFamily">@font/terminal_font</item>
     </style>
 </resources>
