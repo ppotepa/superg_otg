@@ -1,0 +1,226 @@
+Skip to content
+Manuals+ Logo Manuals+User Manuals Simplified.
+Q & A
+Deep Search
+Upload
+Search for:
+Search …
+🔍
+Home » BetaFPV » BETAFPV 70130077 SuperG Nano TX Module User Manual BETAFPV 70130077 SuperG Nano TX Module User Manual pdf
+
+BETAFPV 70130077 SuperG Nano TX Module
+BETAFPV 70130077 SuperG Nano TX Module
+
+Contents hide
+1 INTRODUCTION
+2 Specifications
+3 RP-SMA Interface
+4 Indicator Status
+5 Transmitter Configuration
+6 Custom Button
+7 Bind
+8 More Information
+9 Documents / Resources
+9.1 References
+10 Related Posts
+INTRODUCTION
+ExpressLRS is a new generation of open-source wireless remote control system dedicated to providing the best wireless link for FPV Racing. II is based on the fantastic Semlech SX127x/SX1280 LoRa hardware combined with an Espressif or STM32 Processor, with characteristics such as long remote control distance, stable connection, low latency, high refresh rate, and flexible configuration.
+BETAFPV SuperG Nano TX module is a high-performance wireless remote control product developed based on ExpressLRS V3.3. It adopts the latest dual-antenna dual-transmitter diversity RF link architecture, which improves the reliability of the remote control signal and supports advanced Gemini mode. Compared with the traditional single-antenna and single-transmitter RF architecture, the SuperG Nano TX module has stronger anti-interference performance and a more stable signal link, making it suitable for applications such as racing, long-range fiights, and aerial photography, which require high signal stability and low latency.
+
+Github Project Link: https://github.com/ExpressLRS
+
+Specifications
+Packet Rate: 50Hz/100Hz/150Hz/250Hz/333Hz/500Hz/D250/D500/F500/F1000
+RF Power: 25mW/50mW/100mW/250mW/500mW/1000mW
+Frequency band: 2.4GHz ISM
+Input Voltage: 7V-13V
+Power Consumption: 8V,1A@1000mW, 1:128, Gemini mode
+Antenna Port: RP-SMA
+USB Port: Type-C
+USB Power Supply Range: 7-13V(2-3S)
+Built-in Cooling Fan Voltage: 5V
+RP-SMA Interface
+
+
+
+Note: Please assemble the antenna before power on. Otherwise, the PA chip will be damaged permanently.
+BETAFPV SuperG Nano TX Module is compatible with radio transmitter which has the nano TX module bay (AKA Lite module bay, e.g. BETAFPV LiteRadio 3/3 Pro, Radiomaster Zorro, Frsky Taranis X-Lite, Frsky Taranis X9D Lite, TBS Tango 2 )
+
+Indicator Status
+Receiver Indicator Status Includes:
+
+Indicator Color	Status	Indicating
+Rainbow	Fade Effect	Power On
+Green	Slow Flash	WiFi Update Mode
+Red	Fast Flash	Radio chip not detected
+Orange	Double Flash	Bind Mode
+Triple Flash	Connected to transmitter but mismatched model-match configuration
+Slow Flash	Waiting to bind
+Solid On	Connected and color indicates packet rate
+The packet rate correspond to the RGB indicator color as shown below:
+
+
+
+F1000 and F500 are the only packet rates supported by ELRS 2.4G under FLRC mode. Per mode features a lower latency rate and faster configuration. However, the distance of remote control would be shorter than standard LoRa mode. It’s better suited for racing purposes.
+D500 and D520 is packet rate under DVDA (Deja Vu Diversity Aid) mode. Works under F1000 rate of FLRC mode. It repeatedly sends multiple identical packets under a complex environment, ensuring a safer radio link connection. D500 and D250 respectively send the same packet twice and four times repeatedly.
+
+Transmitter Configuration
+The SuperG Nano TX module defaults to receiving signals in the Crossfire serial data protocol (CRSF), so the remote control’s transmitter module interface needs to support CRSF signal output. Next, we use the radio transmitter with Edge TX system to show how lo setup the CRSF protocol and Lua script.
+
+CRSF Protocol
+
+In the Edge TX system, select “MODEL SEL” and enter the “SETUP” interface. In this interface, tum off Internal RF (set to “OFF”), turn on External RF, and set the output mode to CRSF. Connect the module correctly and then the module will funtion properly.
+Settings are shown as below:
+
+
+Lua Script
+
+Lua represents a lightweight and compact script language. II can be used by being embeded in radio transmitters and easily reading and modifying the parameter set of modules. The directions of using Lua are as below.
+
+Download the elrsV3.lua on BETAFPV official website or ExpressLRS configurator.
+
+
+Save the elrsV3.lua files onto the radio transmitter’s SD Card in the Scripts/Tools folder.
+Long press the “SYS” button or the “Menu” button on the Edge TX system to access the SD-HC CARD interface where you can choose elrsV3.lua script and run it.
+Below images show the Lua script if it runs successfully.
+
+
+With the Lua script, users could configure the set of parameters, such as Packet Rate, Telem Ratio, TX Power and the like. All functions of Lua script are shown as below:
+
+Parameter	Note
+BFPV NanoG 2G4	Products Name
+0/250	Drop ratio of the communication between modules and transmitters
+Cl-	C: Connected
+-: Unconnected
+Packet Rate	Packet rate of communication between module and receiver, and the shorter the interval between remote control packets sent by the transmitter, the more precise the control is.
+Telem Ratio	Receiver telemetry ratio.
+For example, 1 64 means that the receiver will send one telemetry packet back for every 64 remote control packets it receives.
+Switch Mode	Wide: 4x10bit+1x1bit+7×6 or 7bit Hybrid: 4x10bit+1x1bit+6x3bit+1x4bit Learn more information here: https://www.expresslrs.org/software/switch-config/
+Antenna Mode	Gemini Mode: Two antennas simultaneously transmit and receive telemetry with a frequency difference of 40MHz.
+Ant1 Mode: Only Ant1 transmits, but both antennas s multaneously receive telemetry. Ant2 Mode: Only Ant2 transmits, but both antennas s multaneously receive telemetry. Switch Mode: Ant1 and Ant2 alternate transmissions, and both antennas simultaneously receive telemetry.
+Model Match	Set the model ID, can be disabled.
+TX Power	Configure the transmission power of the module, dynamic power, and the threshold for cooling fan.
+VTX Administrator	Set VTX frequency band, power, PIT mode and the like.
+WiFi Connectivity	Enable the WiFi of module/receiver/backpack ofVRX
+Backpack	Set the start channel of DVR or the latency time of start and end of the video recording. Backpack function or module is essential to DVR
+BLE Joystick	This mode allows the module to connected with simulators through computer’s bluetooth.
+Bind	Enter the binding mode
+3.3.0 ISM2G4 b08b82	Firmware version, frequency band and version number.
+Other Device	Set the parameter of the receiver connected with the module
+Note: Learn more details of Express LRS Lua here: https://www.expresslrs.org/guick-starVtransmitters/lua-howto/.
+
+Custom Button
+There are two buttons reserved for users to customize its functions. Operation steps are as below:
+
+Enter the WiFi mode through enable module or powering on for 60 seconds;
+Once the RGB state indicator is in slow green flashing, the receiver’s WiFi will be activated (WiFi name: ExpressLRS RX, password: expresslrs);
+Open the website address: http://10.0.0.1 , you can find the model page for custom button setting interface
+In the “Action” column, select desired custom Function; In the “Press” and “Count” columns, select the button press type and the number of presses or duration of the press.
+Click “Save” to complete the configuration.
+There are six settable shortcut buttons and two ways lo use the buttons: long press and short press. Long press can be set to a custom time duration, while short press can be set to a custom number of presses.
+Six settable functions are shown as below
+
+Unused
+Send VTX Settings
+Increase Power Output
+Enable WiFi
+Go to VTX Channel Menu
+Enter Binding Mode
+Go to VTX Frequency Menu
+Default functions of the module are shown as below:
+
+Button	Action	Press	Count
+Button1 (Left Button)	Enter Binding Mode	Short Press	3 Times
+Increase Power	Long Press	For0.5
+seconds
+
+Button2 (Right Button)	Go toVTX
+Channel Menu
+
+Short Press	2 Times
+Send
+VTX Settings
+
+Long Press	For0.5
+seconds
+
+Bind
+The default firmware of SuperG Nano TX module is ExpressLRS version 3.3.0. There is no Binding Phrase pre-set. Hence Binding with transmitters has to ensure that the module is using V3.0.0 above with no binding phrase.
+
+Put the receiver in a bound state and wait for connection.
+Click the “Bind” in the Lua script or the set custom button lo enter the binding mode. if the Indicator has turned solid, it indicates that the device has been bound successfully.
+
+Note: lf the receiver has been flashed with firmware on the configurator and is set with a binding phrase, then using the above binding method will not let the receiver be bound to other devices. Please set the same binding phrase to the transmitter module to perform an auto-bind with the receiver.
+It is recommended to separate the two antennas as far as possible to achieve better-receiving performance .
+
+
+The power consumption of the module is not only related to the transmission power, but also to the telemetry ratio. For example, when the telemetry ratio is set lo 1: 128 in Gemini mode, the power consumption is 1 000mA@8V, while the telemetry ratio is set to 1 :2, the power consumption is only half of 1 :128. Therefore, when using a high-power module of 500mW or higher, ii is recommended to set the telemetry ratio higher in order to reduce power consumption and extend usage time.
+
+Note: When the voltage of the remote control battery or external battery is lower than 7V (2S) or 10.5V (3S), please use the Gemini mode of S00mW and 1W with caution, otherwise the high-frequency head may enter a restart state due to insufficient power supply, leading to disconnection and loss of control.
+
+More Information
+As ExpressLRS project is still in frequently update, please check BETAFPV Support {Technical Support-> ExpressLRS Radio Link) for more details and newest mauna https://support.betafpv.com/hc/en-us
+
+Newest user manual;
+How to upgrade the firmware;
+FAQ and troubleshooting.
+BETAFPV Logo
+
+Documents / Resources
+	BETAFPV 70130077 SuperG Nano TX Module [pdf] User Manual
+70130077, 70130077 SuperG Nano TX Module, SuperG Nano TX Module, Nano TX Module, TX Module, Module
+References
+User Manual
+Related Posts
+
+BETAFPV aNano TX Module User Manual
+BETAFPV Nano TX Module User Manual Welcome to ExpressLRS! BETAFPV Nano F TX module is based on ExpressLRS…
+
+BETAFPV ELRS Nano RF TX Module High Refresh Rate Long Range Performance Ultra Low Latency featured
+BETAFPV ELRS Nano RF TX Module High Refresh Rate Long Range Performance Ultra Low Latency User Manual
+BETAFPV ELRS Nano RF TX Module High Refresh Rate Long Range Performance Ultra Low Latency BETAFPV Nano RF…
+
+aap NANO-Z1 Single Zone Expander Module-featured
+aap NANO-Z1 Single Zone Expander Module Instructions
+aap NANO-Z1 Single Zone Expander Module INSTRUCTIONS Single zone expander module for ESL and ESX systems. This device…
+
+
+SCT RTK-MINI-TX RTK Mini Transmitter Module User Guide
+SCT RTK-MINI-TX RTK Mini Transmitter Module Product Information Product Name: RemoteTableKit-MiniTM Model: RTK-MINITM Application: Cisco Room USB [Room…
+
+
+BETAFPV aNano TX Module User Manual
+BETAFPV Nano TX Module User Manual Welcome to ExpressLRS! BETAFPV Nano F TX module is based on ExpressLRS…
+
+BETAFPV ELRS Nano RF TX Module High Refresh Rate Long Range Performance Ultra Low Latency featured
+BETAFPV ELRS Nano RF TX Module High Refresh Rate Long Range Performance Ultra Low Latency User Manual
+BETAFPV ELRS Nano RF TX Module High Refresh Rate Long Range Performance Ultra Low Latency BETAFPV Nano RF…
+
+aap NANO-Z1 Single Zone Expander Module-featured
+aap NANO-Z1 Single Zone Expander Module Instructions
+aap NANO-Z1 Single Zone Expander Module INSTRUCTIONS Single zone expander module for ESL and ESX systems. This device…
+
+
+SCT RTK-MINI-TX RTK Mini Transmitter Module User Guide
+SCT RTK-MINI-TX RTK Mini Transmitter Module Product Information Product Name: RemoteTableKit-MiniTM Model: RTK-MINITM Application: Cisco Room USB [Room…
+
+Posted inBetaFPVTags:70130077, 70130077 SuperG Nano TX Module, BetaFPV, Module, Nano TX Module, SuperG Nano TX Module, TX Module
+Leave a comment
+Your email address will not be published. Required fields are marked *
+
+Comment *
+
+Name
+Email
+Website
+
+ Save my name, email, and website in this browser for the next time I comment.
+
+
+Search:
+e.g. whirlpool wrf535swhz
+ Search
+Manuals+ | Upload | Deep Search | Privacy Policy | @manuals.plus | YouTube
+This website is an independent publication and is neither affiliated with nor endorsed by any of the trademark owners. The "Bluetooth®" word mark and logos are registered trademarks owned by Bluetooth SIG, Inc. The "Wi-Fi®" word mark and logos are registered trademarks owned by the Wi-Fi Alliance. Any use of these marks on this website does not imply any affiliation with or endorsement.
+
+⚙

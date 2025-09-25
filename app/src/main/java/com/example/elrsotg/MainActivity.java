@@ -61,6 +61,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     private volatile boolean superGConnected = false;
     private volatile boolean controllerConnected = false;
     private volatile boolean usbPermissionRequested = false;
+    private volatile boolean debugLoggingEnabled = false;
 
     // JNI
     public static native void nativeSetAxes(float roll, float pitch, float yaw, float thr);
@@ -76,6 +77,8 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     public static native boolean nativeIsLinkOk();
     public static native void nativeSetSafetyOverride(boolean override);
     public static native void nativeEmergencyStop();
+    public static native void registerTelemetryCallback();
+    public static native void nativeSetDebugLogging(boolean enabled);
 
     private int controllerCheckCounter = 0;
 
@@ -175,6 +178,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        currentInstance = this; // Set static reference for callbacks
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         
         setContentView(R.layout.activity_main);
@@ -280,6 +284,10 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             checkControllerStatus();
         }, 2000); // 2 second delay
         
+        // Register telemetry callback
+        registerTelemetryCallback();
+        android.util.Log.d("ELRS", "Telemetry callback registered");
+        
         startDeviceMonitor();
 
         // TODO: Re-enable when CMake build is fixed
@@ -296,20 +304,22 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 connected ? R.drawable.status_circle_green : R.drawable.status_circle_red));
         }
         
-        // Start/stop telemetry based on connection status
+        // Start/stop telemetry and TX loop based on connection status
         if (connected && !wasConnected) {
             try {
-                nativeStartTelemetry();
-                android.util.Log.d("ELRS", "Telemetry reader started");
+                nativeStart(); // Start TX control loop
+                nativeStartTelemetry(); // Start telemetry reader
+                android.util.Log.d("ELRS", "TX control and telemetry started");
             } catch (Exception e) {
-                android.util.Log.e("ELRS", "Failed to start telemetry", e);
+                android.util.Log.e("ELRS", "Failed to start native systems", e);
             }
         } else if (!connected && wasConnected) {
             try {
-                nativeStopTelemetry();
-                android.util.Log.d("ELRS", "Telemetry reader stopped");
+                nativeStop(); // Stop TX control loop
+                nativeStopTelemetry(); // Stop telemetry reader
+                android.util.Log.d("ELRS", "TX control and telemetry stopped");
             } catch (Exception e) {
-                android.util.Log.e("ELRS", "Failed to stop telemetry", e);
+                android.util.Log.e("ELRS", "Failed to stop native systems", e);
             }
         }
     }
@@ -1179,6 +1189,29 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     @Override protected void onResume() {
         super.onResume();
         hideSystemUi();
+        
+        // Re-establish connection if SuperG is still connected
+        if (superGConnected) {
+            android.util.Log.d("ELRS", "App resuming - attempting to restart TX systems");
+            try {
+                nativeStart(); // Restart TX loop (will start disarmed due to emergency stop)
+            } catch (Exception e) {
+                android.util.Log.e("ELRS", "Error restarting TX on resume", e);
+            }
+        }
+    }
+    
+    @Override protected void onPause() {
+        super.onPause();
+        
+        // CRITICAL SAFETY: Emergency stop when app goes to background
+        try {
+            android.util.Log.w("ELRS", "App pausing - engaging emergency failsafe");
+            nativeEmergencyStop(); // Disarm and zero all controls
+            nativeStop(); // Stop TX loop
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error during pause failsafe", e);
+        }
     }
 
     private void hideSystemUi() {
@@ -1281,8 +1314,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             // Only send axes to native layer if background input is enabled
             // This stops drone control when B+X exit sequence is active
             if (backgroundInputEnabled) {
-                // TODO: Re-enable when CMake build is fixed
-                // nativeSetAxes(rx, ry, rz, thr);
+                nativeSetAxes(rx, ry, rz, thr);
             } else {
                 // Log occasionally that input is being blocked (not every frame to avoid spam)
                 if (System.currentTimeMillis() % 1000 < 50) { // Log roughly once per second
@@ -1296,6 +1328,9 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Debug: Log all key events to help with troubleshooting
+        android.util.Log.d("ELRS", "KeyDown: code=" + keyCode + " (" + KeyEvent.keyCodeToString(keyCode) + "), repeat=" + event.getRepeatCount() + ", source=0x" + Integer.toHexString(event.getSource()));
+        
         // If exit dialog is showing, let it handle the key events
         if (exitDialog != null && exitDialog.isShowing()) {
             android.util.Log.d("ELRS", "Exit dialog active - delegating key event: " + keyCode);
@@ -1321,19 +1356,31 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             }
         }
         
-        // Handle safe exit sequence - B + X combination
-        if (keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) {
+        // Handle safe exit sequence - B + X combination (prevent multiple registrations)
+        if ((keyCode == KeyEvent.KEYCODE_X || keyCode == KeyEvent.KEYCODE_BUTTON_X) && event.getRepeatCount() == 0) {
             xButtonPressed = true;
             checkSafeExitSequence();
             android.util.Log.d("ELRS", "X button pressed - safe exit sequence checking");
         }
         
-        if (keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) {
+        if ((keyCode == KeyEvent.KEYCODE_B || keyCode == KeyEvent.KEYCODE_BUTTON_B) && event.getRepeatCount() == 0) {
             bButtonPressed = true;
             checkSafeExitSequence();
             android.util.Log.d("ELRS", "B button pressed - safe exit sequence checking");
         }
         
+        // Handle Y key for debug logging toggle (both keyboard Y and gamepad Y button)
+        if ((keyCode == KeyEvent.KEYCODE_Y || keyCode == KeyEvent.KEYCODE_BUTTON_Y) && event.getRepeatCount() == 0) {
+            debugLoggingEnabled = true;
+            nativeSetDebugLogging(true);
+            String buttonType = (keyCode == KeyEvent.KEYCODE_Y) ? "Keyboard Y" : "Gamepad Y Button";
+            android.util.Log.i("ELRS", "🔍 DEBUG LOGGING: ENABLED via " + buttonType + " - Release Y to disable");
+            if (tvGamepadButtons != null) {
+                tvGamepadButtons.post(() -> tvGamepadButtons.setText("DEBUG LOGGING: ON (" + buttonType + ")"));
+            }
+            return true;
+        }
+
         // Block system back button
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             android.util.Log.d("ELRS", "System back blocked - use B + X to exit safely");
@@ -1399,6 +1446,9 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        // Debug: Log all key events to help with troubleshooting
+        android.util.Log.d("ELRS", "KeyUp: code=" + keyCode + " (" + KeyEvent.keyCodeToString(keyCode) + "), source=0x" + Integer.toHexString(event.getSource()));
+        
         // If exit dialog is showing, let it handle the key events
         if (exitDialog != null && exitDialog.isShowing()) {
             android.util.Log.d("ELRS", "Exit dialog active - delegating key up event: " + keyCode);
@@ -1422,6 +1472,23 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
                 isDm8150Audio = deviceName.toLowerCase().contains("dm8150") && 
                                deviceName.toLowerCase().contains("snd-card");
             }
+        }
+        
+        // Handle Y key release for debug logging toggle (both keyboard Y and gamepad Y button)
+        if (keyCode == KeyEvent.KEYCODE_Y || keyCode == KeyEvent.KEYCODE_BUTTON_Y) {
+            debugLoggingEnabled = false;
+            nativeSetDebugLogging(false);
+            String buttonType = (keyCode == KeyEvent.KEYCODE_Y) ? "Keyboard Y" : "Gamepad Y Button";
+            android.util.Log.i("ELRS", "🔍 DEBUG LOGGING: DISABLED via " + buttonType);
+            if (tvGamepadButtons != null) {
+                tvGamepadButtons.post(() -> tvGamepadButtons.setText("DEBUG LOGGING: OFF"));
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (tvGamepadButtons != null) {
+                        tvGamepadButtons.setText("Buttons: ---");
+                    }
+                }, 1000);
+            }
+            return true;
         }
         
         // Handle safe exit sequence release
@@ -1682,6 +1749,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
     @Override protected void onDestroy() {
         super.onDestroy();
+        currentInstance = null; // Clear static reference
         
         // Clean up exit dialog
         if (exitDialog != null && exitDialog.isShowing()) {
@@ -1912,6 +1980,95 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             }
         } catch (Exception e) {
             android.util.Log.e("ELRS", "Error updating safety status", e);
+        }
+    }
+
+    // Static reference to current instance for callbacks
+    private static MainActivity currentInstance = null;
+
+    // Telemetry callback from native layer
+    public static void onTelemetryData(String type, int param1, int param2, int param3, int param4, int param5) {
+        MainActivity instance = currentInstance;
+        if (instance == null) return;
+        
+        // This is called from native thread, need to post to UI thread
+        if ("LINK_STATS".equals(type)) {
+            int rssi1 = param1;
+            int rssi2 = param2;
+            int lq = param3;
+            int snr = param4;
+            int txPower = param5;
+            
+            // Post to UI thread
+            android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            handler.post(() -> instance.updateLinkTelemetry(rssi1, rssi2, lq, snr, txPower));
+        } else if ("BATTERY".equals(type)) {
+            int voltage = param1; // mV
+            int current = param2; // mA
+            int capacity = param3; // mAh
+            
+            // Post to UI thread
+            android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            handler.post(() -> instance.updateBatteryTelemetry(voltage, current, capacity));
+        }
+    }
+    
+    private void updateLinkTelemetry(int rssi1, int rssi2, int lq, int snr, int txPower) {
+        TextView tvRSSI = findViewById(R.id.tvRSSI);
+        TextView tvLinkQuality = findViewById(R.id.tvLinkQuality);
+        
+        if (tvRSSI != null) {
+            int bestRSSI = Math.max(rssi1, rssi2);
+            String rssiText = String.format("RSSI: %d dBm", bestRSSI);
+            tvRSSI.setText(rssiText);
+            
+            // Color code based on signal strength
+            if (bestRSSI > -70) {
+                tvRSSI.setTextColor(0xff00ff00); // Green - excellent
+            } else if (bestRSSI > -85) {
+                tvRSSI.setTextColor(0xffffff00); // Yellow - good
+            } else if (bestRSSI > -100) {
+                tvRSSI.setTextColor(0xffff8800); // Orange - poor
+            } else {
+                tvRSSI.setTextColor(0xffff0000); // Red - critical
+            }
+        }
+        
+        if (tvLinkQuality != null) {
+            String lqText = String.format("LQ: %d%%", lq);
+            tvLinkQuality.setText(lqText);
+            
+            // Color code based on link quality
+            if (lq > 80) {
+                tvLinkQuality.setTextColor(0xff00ff00); // Green - excellent
+            } else if (lq > 60) {
+                tvLinkQuality.setTextColor(0xffffff00); // Yellow - good
+            } else if (lq > 40) {
+                tvLinkQuality.setTextColor(0xffff8800); // Orange - poor
+            } else {
+                tvLinkQuality.setTextColor(0xffff0000); // Red - critical
+            }
+        }
+    }
+    
+    private void updateBatteryTelemetry(int voltageMv, int currentMa, int capacityMah) {
+        TextView tvBattery = findViewById(R.id.tvBattery);
+        
+        if (tvBattery != null) {
+            float voltageV = voltageMv / 1000.0f;
+            String batteryText = String.format("BATT: %.2fV", voltageV);
+            tvBattery.setText(batteryText);
+            
+            // Color code based on voltage (assuming 4S LiPo)
+            if (voltageV > 15.6f) {
+                tvBattery.setTextColor(0xff00ff00); // Green - full
+            } else if (voltageV > 14.8f) {
+                tvBattery.setTextColor(0xffffff00); // Yellow - good
+            } else if (voltageV > 14.0f) {
+                tvBattery.setTextColor(0xffff8800); // Orange - low
+            } else {
+                tvBattery.setTextColor(0xffff0000); // Red - critical
+            }
         }
     }
 }
