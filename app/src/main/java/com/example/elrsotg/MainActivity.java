@@ -69,6 +69,13 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
     public static native boolean nativeSendCommand(String command);
     public static native void nativeStartTelemetry();
     public static native void nativeStopTelemetry();
+    
+    // Safety and arming controls
+    public static native void nativeSetArmed(boolean armed);
+    public static native boolean nativeIsArmed();
+    public static native boolean nativeIsLinkOk();
+    public static native void nativeSetSafetyOverride(boolean override);
+    public static native void nativeEmergencyStop();
 
     private int controllerCheckCounter = 0;
 
@@ -211,6 +218,7 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
 
         clearControllerDebug();
         setupTxActionButtons();
+        setupSafetyControls();
 
         mgr = (UsbManager)getSystemService(USB_SERVICE);
         input = (InputManager)getSystemService(INPUT_SERVICE);
@@ -1764,5 +1772,146 @@ public class MainActivity extends Activity implements InputManager.InputDeviceLi
             return true;
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private void setupSafetyControls() {
+        Button btnArmDisarm = findViewById(R.id.btnArmDisarm);
+        Button btnEmergencyStop = findViewById(R.id.btnEmergencyStop);
+        
+        if (btnArmDisarm != null) {
+            btnArmDisarm.setOnClickListener(v -> toggleArmState());
+        }
+        
+        if (btnEmergencyStop != null) {
+            btnEmergencyStop.setOnClickListener(v -> emergencyStop());
+        }
+        
+        // Start safety status update timer
+        startSafetyStatusUpdates();
+    }
+    
+    private void toggleArmState() {
+        try {
+            boolean currentlyArmed = nativeIsArmed();
+            
+            if (!currentlyArmed) {
+                // Attempting to arm - check safety gates
+                if (!canArm()) {
+                    showArmingFailedDialog();
+                    return;
+                }
+                
+                // Show arming confirmation dialog
+                showArmingDialog();
+            } else {
+                // Disarming
+                nativeSetArmed(false);
+                updateSafetyStatus();
+                android.util.Log.d("ELRS", "Disarmed by user");
+            }
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error toggling arm state", e);
+        }
+    }
+    
+    private boolean canArm() {
+        // Check safety gates
+        boolean superGConnected = this.superGConnected;
+        // Note: g_thr is not accessible here, we'll check throttle in native code
+        
+        return superGConnected;
+    }
+    
+    private void showArmingDialog() {
+        if (isFinishing()) return;
+        
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        builder.setTitle("ARM CONFIRMATION")
+               .setMessage("⚠️ DANGER: This will ARM the aircraft!\n\n" +
+                          "Ensure:\n" +
+                          "• Props are OFF or quad is secure\n" +
+                          "• Throttle is at minimum\n" +
+                          "• You are ready to fly\n\n" +
+                          "Proceed with ARMING?")
+               .setIcon(android.R.drawable.ic_dialog_alert)
+               .setPositiveButton("ARM", (dialog, which) -> {
+                   nativeSetArmed(true);
+                   updateSafetyStatus();
+                   android.util.Log.d("ELRS", "Armed by user confirmation");
+               })
+               .setNegativeButton("Cancel", null)
+               .create()
+               .show();
+    }
+    
+    private void showArmingFailedDialog() {
+        if (isFinishing()) return;
+        
+        String reason = "";
+        if (!superGConnected) reason += "• SuperG not connected\n";
+        
+        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        builder.setTitle("CANNOT ARM")
+               .setMessage("Safety gates failed:\n\n" + reason + 
+                          "\nFix these issues before arming.")
+               .setIcon(android.R.drawable.ic_dialog_alert)
+               .setPositiveButton("OK", null)
+               .create()
+               .show();
+    }
+    
+    private void emergencyStop() {
+        try {
+            nativeEmergencyStop();
+            updateSafetyStatus();
+            android.util.Log.w("ELRS", "EMERGENCY STOP activated");
+            
+            // Show brief confirmation
+            android.widget.Toast.makeText(this, "🛑 EMERGENCY STOP", android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error during emergency stop", e);
+        }
+    }
+    
+    private void startSafetyStatusUpdates() {
+        // Update safety status every 500ms
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing()) {
+                    updateSafetyStatus();
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 500);
+                }
+            }
+        });
+    }
+    
+    private void updateSafetyStatus() {
+        try {
+            boolean armed = nativeIsArmed();
+            boolean linkOk = nativeIsLinkOk();
+            
+            Button btnArmDisarm = findViewById(R.id.btnArmDisarm);
+            TextView tvSafetyStatus = findViewById(R.id.tvSafetyStatus);
+            TextView tvLinkStatus = findViewById(R.id.tvLinkStatus);
+            
+            if (btnArmDisarm != null) {
+                btnArmDisarm.setText(armed ? "DISARM" : "ARM");
+                btnArmDisarm.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    armed ? 0xff00cc00 : 0xffcc3333)); // Green when armed, red when disarmed
+            }
+            
+            if (tvSafetyStatus != null) {
+                tvSafetyStatus.setText(armed ? "SAFETY: ARMED" : "SAFETY: DISARMED");
+                tvSafetyStatus.setTextColor(armed ? 0xffff3333 : 0xff00ff00); // Red when armed, green when disarmed
+            }
+            
+            if (tvLinkStatus != null) {
+                tvLinkStatus.setText(linkOk ? "LINK: OK" : "LINK: UNKNOWN");
+                tvLinkStatus.setTextColor(linkOk ? 0xff00ff00 : 0xff888888); // Green when OK, gray when unknown
+            }
+        } catch (Exception e) {
+            android.util.Log.e("ELRS", "Error updating safety status", e);
+        }
     }
 }

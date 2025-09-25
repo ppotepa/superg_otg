@@ -9,12 +9,24 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ELRS", __VA_ARGS__)
 
 // ---- JNI bridge to UsbBridge.write(byte[],len,timeout) ----
-static JavaVM *g_vm = nullptr;
-static jclass g_bridgeClass = nullptr;
-static jmethodID g_write = nullptr;
+static JavaVM* g_vm=nullptr;
+static jclass   g_bridgeClass=nullptr;
+static jmethodID g_write=nullptr;
 
 static std::atomic<float> g_roll{0}, g_pitch{0}, g_yaw{0}, g_thr{0};
-static std::atomic<bool> g_run{false};
+static std::atomic<bool>  g_run{false};
+static std::atomic<bool>  g_armed{false};
+static std::atomic<bool>  g_linkOk{false};
+static std::atomic<bool>  g_safetyOverride{false};
+#include <array>
+#include <atomic>
+#include <thread>
+#include <chrono>
+#include <cstring>
+
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "ELRS", __VA_ARGS__)
+
+// Variables already declared above
 
 // ---- CRSF helpers ----
 static inline uint8_t crsf_crc8(const uint8_t *p, int n)
@@ -82,21 +94,50 @@ static void txLoop()
     while (g_run.load())
     {
         uint16_t ch[16];
+        // Initialize all channels to safe defaults
         for (int i = 0; i < 16; i++)
-            ch[i] = 992;
-        ch[0] = map_stick(g_roll.load());
-        ch[1] = map_stick(g_pitch.load());
-        ch[2] = map_thr(g_thr.load());
-        ch[3] = map_stick(g_yaw.load());
+            ch[i] = 992; // ~1500us neutral
 
+        // Apply control inputs
+        ch[0] = map_stick(g_roll.load());  // Roll
+        ch[1] = map_stick(g_pitch.load()); // Pitch
+        ch[3] = map_stick(g_yaw.load());   // Yaw
+
+        // Throttle safety logic
+        float thr = g_thr.load();
+        bool armed = g_armed.load();
+        bool linkOk = g_linkOk.load();
+        bool safetyOverride = g_safetyOverride.load();
+        
+        // Safety gates for throttle
+        if (!armed || (!linkOk && !safetyOverride)) {
+            thr = 0.0f; // Force throttle to minimum
+        }
+        
+        // Apply throttle with safety check
+        ch[2] = map_thr(thr);
+        
+        // AUX channels for modes (AETR1234 mapping)
+        ch[4] = armed ? 1811 : 172;        // AUX1 - ARM channel (high=armed, low=disarmed)
+        ch[5] = 992;                       // AUX2 - Flight mode (neutral = default mode)
+        ch[6] = 992;                       // AUX3 - Additional mode switch
+        ch[7] = 992;                       // AUX4 - Beeper/other functions
+        
+        // Send frame
         std::array<uint8_t, 26> frame;
         build(ch, frame);
 
         JNIEnv *env = envGet();
         jbyteArray arr = env->NewByteArray((jsize)frame.size());
         env->SetByteArrayRegion(arr, 0, (jsize)frame.size(), (jbyte *)frame.data());
-        (void)env->CallStaticIntMethod(g_bridgeClass, g_write, arr, (jint)frame.size(), 20);
+        int result = env->CallStaticIntMethod(g_bridgeClass, g_write, arr, (jint)frame.size(), 20);
         env->DeleteLocalRef(arr);
+        
+        // Log occasionally for debugging
+        static int counter = 0;
+        if (++counter % 250 == 0) { // Every ~1 second at 250Hz
+            LOGI("TX: Armed=%d, LinkOK=%d, Thr=%.2f, Result=%d", armed, linkOk, thr, result);
+        }
 
         std::this_thread::sleep_for(period);
     }
@@ -313,8 +354,16 @@ static void processTelemetryFrame(const uint8_t* frame, int len) {
                 uint8_t rf_mode = frame[8];
                 uint8_t tx_power = frame[9];
                 
-                LOGI("Link Stats: RSSI1=%ddBm, RSSI2=%ddBm, LQ=%d%%, SNR=%ddB, RF_Mode=%d, TX_Power=%d", 
-                     rssi1, rssi2, lq, snr, rf_mode, tx_power);
+                // Update link quality status for safety gates
+                // Consider link OK if LQ > 50% and RSSI > -100dBm
+                bool newLinkOk = (lq > 50) && (rssi1 > -100 || rssi2 > -100);
+                g_linkOk.store(newLinkOk);
+                
+                static int logCounter = 0;
+                if (++logCounter % 50 == 0) { // Log every ~5 seconds
+                    LOGI("Link Stats: RSSI1=%ddBm, RSSI2=%ddBm, LQ=%d%%, SNR=%ddB, LinkOK=%d", 
+                         rssi1, rssi2, lq, snr, newLinkOk);
+                }
             }
             break;
             
@@ -366,4 +415,37 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_example_elrsotg_MainActivity_nativeStopTelemetry(JNIEnv*, jclass) {
     g_telemetryRun = false;
     LOGI("Telemetry reader stopped");
+}
+
+// ---- Safety and Arming Controls ----
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_elrsotg_MainActivity_nativeSetArmed(JNIEnv*, jclass, jboolean armed) {
+    g_armed.store(armed);
+    LOGI("Armed state changed: %s", armed ? "ARMED" : "DISARMED");
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_elrsotg_MainActivity_nativeIsArmed(JNIEnv*, jclass) {
+    return g_armed.load();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_elrsotg_MainActivity_nativeIsLinkOk(JNIEnv*, jclass) {
+    return g_linkOk.load();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_elrsotg_MainActivity_nativeSetSafetyOverride(JNIEnv*, jclass, jboolean override) {
+    g_safetyOverride.store(override);
+    LOGI("Safety override: %s", override ? "ENABLED" : "DISABLED");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_elrsotg_MainActivity_nativeEmergencyStop(JNIEnv*, jclass) {
+    g_armed.store(false);
+    g_roll.store(0.0f);
+    g_pitch.store(0.0f);
+    g_yaw.store(0.0f);
+    g_thr.store(0.0f);
+    LOGI("EMERGENCY STOP - All controls zeroed and disarmed");
 }
